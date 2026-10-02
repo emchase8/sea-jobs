@@ -41,7 +41,7 @@ const MatchJob = ({ company, job }: MatchJobProps) => {
         textAlign: "left"
       }}
     >
-      <h2 style={{ margin: "0 0 8px", textAlign: "center" }}>{job.jobTitle}</h2>
+      <h2 style={{ margin: "0 0 8px", textAlign: "center", color: "#111827" }}>{job.jobTitle}</h2>
 
       <div style={{ marginBottom: matchPercentage !== null ? "12px" : "20px", fontWeight: 600, textAlign: "center", color: "#4b5563" }}>
         {company.companyName}

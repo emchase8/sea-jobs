@@ -6,6 +6,12 @@ import { useUserInfo } from "../../userInfo/userInfoHooks.js";
 
 type JobListing = Job & { id: number };
 
+const formatJobType = (type: Job["type"]) =>
+  type
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
 const Jobs = () => {
   const navigate = useNavigate();
   const { user, auth } = useUserInfo();
@@ -190,7 +196,7 @@ const Jobs = () => {
                   {job.jobTitle}
                 </h2>
                 <p style={{ margin: "0 0 6px", color: "#475569" }}>
-                  {job.location} · {job.type}
+                  {job.location} · {formatJobType(job.type)}
                 </p>
                 <p style={{ margin: 0, color: "#475569" }}>
                   ${job.payPerYear.toLocaleString()} / year

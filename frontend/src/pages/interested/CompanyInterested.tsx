@@ -5,11 +5,24 @@ import { useUserInfo } from "../../userInfo/userInfoHooks.js";
 
 type ApplicantResume = {
   id?: number;
+  owner?: {
+    id?: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  };
   owner_first_name?: string;
   owner_last_name?: string;
   owner_email?: string;
   summary?: string;
   skills?: string[];
+  experience?: {
+    title?: string;
+    company?: string;
+    type?: string;
+    description?: string;
+  }[];
   experiences?: {
     title?: string;
     company?: string;
@@ -17,9 +30,11 @@ type ApplicantResume = {
     description?: string;
   }[];
   education?: {
+    title?: string;
     school?: string;
     degree?: string;
     degree_type?: string;
+    major?: string;
     focus?: string;
     gpa?: string | number;
   }[];
@@ -217,6 +232,10 @@ const CompanyInterested = () => {
             <div style={{ display: "grid", gap: "12px" }}>
               {matches.map((match, index) => {
                 const resume = match.resume;
+                const applicantName = formatApplicantName(resume);
+                const applicantEmail = formatApplicantEmail(resume);
+                const applicantUsername = resume?.owner?.username;
+                const applicantExperience = getApplicantExperience(resume);
                 const isMutualMatch = Boolean(
                   match.is_mutual_match ||
                     (match.applicant_swiped_yes === true && match.employer_swiped_yes === true),
@@ -242,47 +261,43 @@ const CompanyInterested = () => {
                         gap: "12px",
                       }}
                     >
-                      <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
-                        {formatApplicantName(resume)}
-                      </h2>
+                      <div>
+                        <h2 style={{ margin: "0 0 4px", fontSize: "1.25rem", color: "#0f172a" }}>
+                          {applicantName}
+                        </h2>
+                        {applicantUsername && (
+                          <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
+                            @{applicantUsername}
+                          </p>
+                        )}
+                      </div>
                       {isMutualMatch ? (
-                        <span
-                          style={{
-                            borderRadius: "20px",
-                            background: "#16a34a",
-                            color: "#ffffff",
-                            padding: "4px 10px",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            letterSpacing: "0.04em",
-                            textTransform: "uppercase",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <span style={matchedBadgeStyle}>
                           Matched
                         </span>
                       ) : (
-                        <span
-                          style={{
-                            borderRadius: "20px",
-                            background: "#e2e8f0",
-                            color: "#475569",
-                            padding: "4px 10px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <span style={pendingBadgeStyle}>
                           Interested
                         </span>
                       )}
                     </div>
 
-                    {resume?.owner_email && (
-                      <p style={{ margin: "0 0 6px", color: "#475569", fontWeight: 600 }}>
-                        {resume.owner_email}
-                      </p>
-                    )}
+                    <div style={contactBoxStyle}>
+                      <div>
+                        <p style={contactLabelStyle}>Applicant</p>
+                        <p style={contactValueStyle}>{applicantName}</p>
+                      </div>
+                      <div>
+                        <p style={contactLabelStyle}>Email</p>
+                        {applicantEmail ? (
+                          <a href={`mailto:${applicantEmail}`} style={contactLinkStyle}>
+                            {applicantEmail}
+                          </a>
+                        ) : (
+                          <p style={contactValueStyle}>Not provided</p>
+                        )}
+                      </div>
+                    </div>
 
                     {resume?.summary && (
                       <p style={{ margin: "10px 0 0", color: "#475569", lineHeight: 1.5, fontSize: "0.95rem" }}>
@@ -310,10 +325,10 @@ const CompanyInterested = () => {
                       </div>
                     )}
 
-                    {Array.isArray(resume?.experiences) && resume.experiences.length > 0 && (
+                    {applicantExperience.length > 0 && (
                       <div style={{ marginTop: "12px", color: "#475569", fontSize: "0.95rem" }}>
                         <strong style={{ color: "#334155" }}>Experience</strong>
-                        {resume.experiences.slice(0, 2).map((experience, experienceIndex) => (
+                        {applicantExperience.slice(0, 2).map((experience, experienceIndex) => (
                           <p
                             key={`${experience.title}-${experience.company}-${experienceIndex}`}
                             style={{ margin: "6px 0 0", lineHeight: 1.45 }}
@@ -333,7 +348,7 @@ const CompanyInterested = () => {
                             key={`${education.school}-${educationIndex}`}
                             style={{ margin: "6px 0 0", lineHeight: 1.45 }}
                           >
-                            {[education.degree, education.degree_type, education.school]
+                            {[education.degree, education.degree_type, education.major, education.focus, education.school || education.title]
                               .filter(Boolean)
                               .join(" · ") || "Education listed"}
                           </p>
@@ -366,7 +381,25 @@ const EmptyState = ({ text }: { text: string }) => (
 );
 
 const formatApplicantName = (resume?: ApplicantResume) =>
-  [resume?.owner_first_name, resume?.owner_last_name].filter(Boolean).join(" ") || "Applicant";
+  [resume?.owner?.first_name || resume?.owner_first_name, resume?.owner?.last_name || resume?.owner_last_name]
+    .filter(Boolean)
+    .join(" ") ||
+  resume?.owner?.username ||
+  "Applicant";
+
+const formatApplicantEmail = (resume?: ApplicantResume) => resume?.owner?.email || resume?.owner_email || "";
+
+const getApplicantExperience = (resume?: ApplicantResume) => {
+  if (Array.isArray(resume?.experience)) {
+    return resume.experience;
+  }
+
+  if (Array.isArray(resume?.experiences)) {
+    return resume.experiences;
+  }
+
+  return [];
+};
 
 const formatJobType = (type?: string) => {
   if (!type) {
@@ -438,6 +471,64 @@ const toastCloseButtonStyle: React.CSSProperties = {
 const toastMessageStyle: React.CSSProperties = {
   margin: 0,
   fontSize: "0.95rem",
+};
+
+const matchedBadgeStyle: React.CSSProperties = {
+  borderRadius: "20px",
+  background: "#16a34a",
+  color: "#ffffff",
+  padding: "4px 10px",
+  fontSize: "0.75rem",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  whiteSpace: "nowrap",
+};
+
+const pendingBadgeStyle: React.CSSProperties = {
+  borderRadius: "20px",
+  background: "#e2e8f0",
+  color: "#475569",
+  padding: "4px 10px",
+  fontSize: "0.75rem",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
+const contactBoxStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "10px",
+  marginTop: "12px",
+  padding: "12px",
+  borderRadius: "10px",
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+};
+
+const contactLabelStyle: React.CSSProperties = {
+  margin: "0 0 4px",
+  color: "#64748b",
+  fontSize: "0.78rem",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+};
+
+const contactValueStyle: React.CSSProperties = {
+  margin: 0,
+  color: "#334155",
+  fontSize: "0.95rem",
+  fontWeight: 600,
+  overflowWrap: "anywhere",
+};
+
+const contactLinkStyle: React.CSSProperties = {
+  color: "#2563eb",
+  fontSize: "0.95rem",
+  fontWeight: 600,
+  textDecoration: "none",
+  overflowWrap: "anywhere",
 };
 
 export default CompanyInterested;
