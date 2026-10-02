@@ -3,15 +3,15 @@ version: '3.8'
 services:
   db:
     image: pgvector/pgvector:pg16
-    container_name: mutualhire_postgres
+    container_name: sea_jobs_postgres
     environment:
-      POSTGRES_DB: mutualhire_db
-      POSTGRES_USER: mutualhire_user
-      POSTGRES_PASSWORD: ilovemason
+      POSTGRES_DB: sea_jobs_db
+      POSTGRES_USER: sea_jobs_user
+      POSTGRES_PASSWORD: phixystuph
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - sea_jobs_postgres_data:/var/lib/postgresql/data
 
 volumes:
-  postgres_data:
+  sea_jobs_postgres_data:
