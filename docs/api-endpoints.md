@@ -300,23 +300,31 @@ Returns `200 OK` with up to 10 Resume objects ranked for the specified job. Prev
 
 ### Get matching jobs
 
-`GET /api/matching/jobs/?resume_id={resume_id}`
+`GET /api/matching/jobs/`
 
-Returns `200 OK` with up to 10 Job objects ranked for the specified resume. Previously applicant-swiped jobs are excluded. Returns `400` when `resume_id` is omitted and `404` when the resume does not exist.
+Applicant only. The resume is resolved from the authenticated user. Returns `200 OK` with up to 10 Job objects ranked for the applicant's resume. Previously applicant-swiped jobs are excluded. Returns `404` when the applicant does not have a resume.
+
+### Get matching peers
+
+`GET /api/matching/peers/`
+
+Returns `200 OK` with Resume objects ranked as peer networking matches for the authenticated user's resume. Returns `404` when the authenticated user does not have a resume.
 
 Both matching responses use the shared public objects above and never expose the embeddings used to calculate similarity.
 
-## Mutual match endpoints
+## Match endpoints
 
-A mutual match is a job-resume relationship where both the applicant and the
-employer have swiped yes. Match responses omit the internal swipe fields and use
-this shape:
+A match is a job-resume relationship that stores applicant and recruiter swipe
+state. Match responses use this shape:
 
 ```json
 {
   "id": 61,
   "job": {"id": 21, "title": "Backend Engineer", "skills": ["Python"]},
   "resume": {"id": 31, "summary": "Backend developer", "skills": ["Python"]},
+  "applicant_swiped_yes": true,
+  "employer_swiped_yes": true,
+  "is_mutual_match": true,
   "created_at": "2026-09-01T18:42:17.120000Z"
 }
 ```
@@ -324,15 +332,16 @@ this shape:
 The embedded `job` and `resume` values are the complete public Job and Resume
 objects described above. They never contain vector embeddings.
 
-### List an applicant's mutual matches
+### List an applicant's matches
 
 `GET /api/matches/applicant/`
 
 Applicant only. The resume is resolved from the authenticated user; no resume ID
-is required. Returns `200 OK` with an array of Match objects for which both
-parties expressed interest. The array is empty when there are no mutual matches.
-Returns `401` when the authenticated user is not an applicant and `404` when the
-applicant does not have a resume.
+is required. Returns `200 OK` with an array of Match objects where the applicant
+has swiped yes. Use `is_mutual_match` to determine whether the recruiter has
+also swiped yes. The array is empty when there are no matches or when the
+applicant does not have a resume. Returns `401` when the authenticated user is
+not an applicant.
 
 ### List a recruiter's mutual matches
 
@@ -343,3 +352,132 @@ which both parties expressed interest. The array is empty when there are no
 mutual matches. Returns `401` when the authenticated user is not a recruiter,
 `404` when the job does not exist, and `403` when it belongs to another
 recruiter.
+
+### List network matches
+
+`GET /api/matches/network/`
+
+Returns `200 OK` with an array of network match objects where the authenticated
+user has swiped yes. Results are ordered by newest first. The array is empty
+when there are no network matches. Each object includes `user1`, `user2`, the
+`peer_user` relative to the authenticated requester, `peer_resume`,
+`user1_swiped_yes`, `user2_swiped_yes`, `is_mutual_match`, and `created_at`.
+`peer_resume` is `null` when the peer has no resume.
+
+## Swipe endpoints
+
+### Swipe on a job or resume
+
+`POST /api/swipe/`
+
+Records applicant interest in a job or recruiter interest in a resume. Applicants
+send the job ID and interest state; their resume is resolved from the
+authenticated user:
+
+```json
+{"job_id": 21, "is_interested": true}
+```
+
+Recruiters send the job ID, resume ID, and interest state:
+
+```json
+{"job_id": 21, "resume_id": 31, "is_interested": true}
+```
+
+Returns `200 OK` with:
+
+```json
+{"message": "Swipe recorded successfully.", "is_mutual_match": true}
+```
+
+Returns `400` when required fields are missing or an applicant has no resume,
+and `403` when a recruiter swipes for a job they do not own.
+
+### Swipe on a peer
+
+`POST /api/swipe/peer/`
+
+Records networking interest in another user:
+
+```json
+{"peer_user_id": 13, "is_interested": true}
+```
+
+Returns `200 OK` with:
+
+```json
+{"message": "Peer swipe recorded successfully.", "is_mutual_match": true}
+```
+
+Returns `400` when required fields are missing or the user swipes on themself,
+and `404` when the peer user does not exist.
+
+## Draft suggestion endpoints
+
+### Get job match message suggestions
+
+`POST /api/matches/draft-suggestions/`
+
+Returns AI-generated talking points for an applicant or recruiter to draft their
+own outreach message. Send either a match ID:
+
+```json
+{"match_id": 61}
+```
+
+Or send a job ID. Applicants only need the job ID because their resume is
+resolved from the authenticated user:
+
+```json
+{"job_id": 21}
+```
+
+Recruiters sending a job ID must also include the resume ID:
+
+```json
+{"job_id": 21, "resume_id": 31}
+```
+
+Returns `200 OK` with:
+
+```json
+{
+  "suggestions": ["Mention your relevant Django API work."],
+  "job_title": "Backend Engineer",
+  "company_name": "Acme",
+  "applicant_name": "Alex Rivera",
+  "company_email": "jobs@acme.example"
+}
+```
+
+Returns `400` when neither `job_id` nor `match_id` is supplied, when a recruiter
+omits `resume_id`, or when an applicant has no resume. Returns `404` when the
+specified match, job, or resume does not exist. Returns `500` when the Anthropic
+package is unavailable, `ANTHROPIC_API_KEY` is not configured, or AI generation
+fails.
+
+### Get network email suggestions
+
+`POST /api/matches/draft-network-suggestions/`
+
+Returns networking outreach suggestions and a draft email for contacting a peer:
+
+```json
+{"peer_user_id": 13}
+```
+
+Returns `200 OK` with:
+
+```json
+{
+  "suggestions": ["Mention your shared React experience."],
+  "draft_email": "Hi Sam,\n\nI came across your profile...",
+  "peer_name": "Sam Lee",
+  "peer_email": "sam@example.com"
+}
+```
+
+Returns `400` when `peer_user_id` is missing, when the authenticated user has no
+resume, or when the peer has no resume. Returns `404` when the peer user does
+not exist. When `ANTHROPIC_API_KEY` is not configured or generation fails, the
+endpoint returns default suggestions and a default draft instead of an error.
