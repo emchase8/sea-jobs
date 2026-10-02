@@ -4,7 +4,11 @@ import SideMenu from "../Menu.js";
 import { useUserInfo } from "../../userInfo/userInfoHooks.js";
 
 type ApplicantMatch = {
+  id?: number;
   job?: InterestedJob;
+  applicant_swiped_yes?: boolean | null;
+  employer_swiped_yes?: boolean | null;
+  is_mutual_match?: boolean;
 };
 
 type InterestedJob = {
@@ -23,13 +27,26 @@ type InterestedJob = {
   skills?: string[];
 };
 
+type SuggestionsState = {
+  [jobId: number]: {
+    loading: boolean;
+    suggestions: string[];
+    companyName: string;
+    draftText?: string;
+    copied?: boolean;
+    error?: string;
+    isOpen: boolean;
+  };
+};
+
 const Interested = () => {
   const navigate = useNavigate();
-  const { auth } = useUserInfo();
+  const { user, auth } = useUserInfo();
   const [interestedJobs, setInterestedJobs] = useState<InterestedJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [showErrorToast, setShowErrorToast] = useState(false);
+  const [suggestionsMap, setSuggestionsMap] = useState<SuggestionsState>({});
 
   const showInterestedError = (message: string) => {
     setErrorMessage(message);
@@ -80,7 +97,11 @@ const Interested = () => {
         }
 
         const matches = Array.isArray(data) ? data : [];
-        setInterestedJobs(matches.map((match: ApplicantMatch) => match.job).filter(Boolean));
+        setInterestedJobs(
+          matches
+            .map((match: ApplicantMatch) => match.job)
+            .filter((job): job is InterestedJob => Boolean(job)),
+        );
       } catch {
         setInterestedJobs([]);
         showInterestedError("Unable to load interested jobs right now. Please try again.");
@@ -91,6 +112,121 @@ const Interested = () => {
 
     fetchInterestedJobs();
   }, [auth]);
+
+  const handleToggleDraftEmail = async (job: InterestedJob) => {
+    if (!job.id) return;
+
+    const current = suggestionsMap[job.id];
+
+    if (current && current.isOpen) {
+      setSuggestionsMap((prev) => ({
+        ...prev,
+        [job.id!]: { ...prev[job.id!], isOpen: false },
+      }));
+      return;
+    }
+
+    const companyName = formatCompanyName(job.company);
+
+    setSuggestionsMap((prev) => ({
+      ...prev,
+      [job.id!]: {
+        loading: true,
+        suggestions: current?.suggestions || [],
+        companyName,
+        draftText: current?.draftText || "",
+        copied: false,
+        isOpen: true,
+      },
+    }));
+
+    try {
+      const response = await fetch("http://localhost:8000/api/matches/draft-suggestions/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Token ${auth}`,
+        },
+        body: JSON.stringify({
+          job_id: job.id,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const errDetail = data?.error || data?.detail || "Failed to generate suggestions.";
+        setSuggestionsMap((prev) => ({
+          ...prev,
+          [job.id!]: {
+            ...prev[job.id!],
+            loading: false,
+            error: errDetail,
+            isOpen: true,
+          },
+        }));
+        showInterestedError(errDetail);
+        return;
+      }
+
+      const defaultDraft = `Hi ${companyName} Team,\n\nI was excited to connect regarding the ${job.title || "open"} role. Based on my background and your team's goals, I would welcome the opportunity to discuss how my skills align with what you're looking for.\n\nBest regards,\n${user?.firstName || "Applicant"}`;
+
+      setSuggestionsMap((prev) => ({
+        ...prev,
+        [job.id!]: {
+          loading: false,
+          suggestions: data.suggestions || [],
+          companyName,
+          draftText: prev[job.id!]?.draftText || defaultDraft,
+          copied: false,
+          isOpen: true,
+        },
+      }));
+    } catch {
+      setSuggestionsMap((prev) => ({
+        ...prev,
+        [job.id!]: {
+          ...prev[job.id!],
+          loading: false,
+          error: "Could not generate email suggestions at this time.",
+          isOpen: true,
+        },
+      }));
+      showInterestedError("Unable to generate suggestions right now. Please try again.");
+    }
+  };
+
+  const handleUpdateDraft = (jobId: number, text: string) => {
+    setSuggestionsMap((prev) => ({
+      ...prev,
+      [jobId]: {
+        ...prev[jobId],
+        draftText: text,
+        copied: false,
+      },
+    }));
+  };
+
+  const handleCopyEmail = (jobId: number) => {
+    const text = suggestionsMap[jobId]?.draftText || "";
+    navigator.clipboard.writeText(text);
+    setSuggestionsMap((prev) => ({
+      ...prev,
+      [jobId]: {
+        ...prev[jobId],
+        copied: true,
+      },
+    }));
+    setTimeout(() => {
+      setSuggestionsMap((prev) => ({
+        ...prev,
+        [jobId]: {
+          ...prev[jobId],
+          copied: false,
+        },
+      }));
+    }, 2500);
+  };
 
   return (
     <>
@@ -115,12 +251,11 @@ const Interested = () => {
         style={{
           minHeight: "100vh",
           padding: "24px 16px",
-          backgroundColor: "#f8fafc",
         }}
       >
         <div
           style={{
-            maxWidth: "860px",
+            maxWidth: "820px",
             margin: "0 auto",
             background: "#ffffff",
             borderRadius: "18px",
@@ -128,23 +263,22 @@ const Interested = () => {
             padding: "28px",
           }}
         >
-          {/* Header */}
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
               gap: "16px",
-              marginBottom: "24px",
+              marginBottom: "20px",
               flexWrap: "wrap",
             }}
           >
-            <div>
-              <h1 style={{ margin: 0, fontSize: "2rem", color: "#0f172a", fontWeight: 700 }}>
-                Your Interested Jobs
+            <div style={{ textAlign: "left" }}>
+              <h1 style={{ margin: 0, fontSize: "2rem", color: "#0f172a" }}>
+                Your interested jobs
               </h1>
-              <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: "1rem" }}>
-                Jobs you have swiped right on. Check your match status and get AI suggestions to draft your outreach email!
+              <p style={{ margin: "8px 0 0", color: "#475569" }}>
+                Jobs you have marked as interested.
               </p>
             </div>
 
@@ -156,20 +290,13 @@ const Interested = () => {
                 borderRadius: "10px",
                 background: "#16a34a",
                 color: "#ffffff",
-                padding: "12px 20px",
+                padding: "12px 18px",
                 fontWeight: 600,
                 fontSize: "1rem",
                 cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                boxShadow: "0 4px 12px rgba(22, 163, 74, 0.25)",
-                transition: "background 0.2s ease, transform 0.1s ease",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#15803d")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "#16a34a")}
             >
-              🔍 Find more jobs
+              Find jobs
             </button>
           </div>
 
@@ -190,94 +317,249 @@ const Interested = () => {
           ) : interestedJobs.length === 0 ? (
             <div
               style={{
-                border: "2px dashed #cbd5e1",
-                borderRadius: "16px",
-                padding: "48px 24px",
+                border: "1px dashed #cbd5e1",
+                borderRadius: "14px",
+                padding: "32px 20px",
                 textAlign: "center",
                 background: "#f8fafc",
               }}
             >
-              <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📂</div>
-              <p style={{ margin: 0, fontSize: "1.25rem", color: "#1e293b", fontWeight: 600 }}>
+              <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>
                 You have not saved any jobs yet.
               </p>
-              <p style={{ margin: "8px 0 20px", color: "#64748b", fontSize: "0.95rem" }}>
-                Browse available opportunities in the match deck and swipe right on jobs you like!
+              <p style={{ margin: "8px 0 0", color: "#64748b" }}>
+                Click “Find jobs” to look through matches.
               </p>
-              <button
-                type="button"
-                onClick={() => navigate("/applicant/match")}
-                style={{
-                  border: "none",
-                  borderRadius: "10px",
-                  background: "#2563eb",
-                  color: "#ffffff",
-                  padding: "10px 20px",
-                  fontWeight: 600,
-                  fontSize: "0.95rem",
-                  cursor: "pointer",
-                }}
-              >
-                Start swiping
-              </button>
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
-              {interestedJobs.map((job, index) => (
-                <div
-                  key={`${job.id ?? job.title ?? "job"}-${index}`}
-                  style={{
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "12px",
-                    padding: "18px",
-                    background: "#f8fafc",
-                  }}
-                >
-                  <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
-                    {job.title || "Untitled job"}
-                  </h2>
-                  <p style={{ margin: "0 0 10px", color: "#475569", fontWeight: 600 }}>
-                    {formatCompanyName(job.company)}
-                  </p>
+              {interestedJobs.map((job, index) => {
+                const suggestion = job.id ? suggestionsMap[job.id] : undefined;
+                const isSuggestionOpen = !!suggestion?.isOpen;
+
+                return (
                   <div
+                    key={`${job.id ?? job.title ?? "job"}-${index}`}
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                      gap: "10px",
-                      marginBottom: "12px",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "12px",
+                      padding: "16px",
+                      background: "#f8fafc",
                     }}
                   >
-                    <JobDetail label="Location" value={job.location} />
-                    <JobDetail label="Type" value={formatJobType(job.type)} />
-                    <JobDetail label="Pay" value={formatPay(job.pay)} />
-                    <JobDetail label="Company email" value={job.company?.email} />
-                  </div>
-                  {job.description && (
-                    <p style={{ margin: "0 0 12px", color: "#475569", lineHeight: 1.5 }}>
-                      {job.description}
+                    <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
+                      {job.title || "Untitled job"}
+                    </h2>
+                    <p style={{ margin: "0 0 6px", color: "#475569", fontWeight: 600 }}>
+                      {formatCompanyName(job.company)}
                     </p>
-                  )}
-                  {Array.isArray(job.skills) && job.skills.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                      {job.skills.map((skill) => (
-                        <span
-                          key={skill}
-                          style={{
-                            borderRadius: "999px",
-                            background: "#e0f2fe",
-                            color: "#075985",
-                            padding: "6px 10px",
-                            fontSize: "0.9rem",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {skill}
-                        </span>
-                      ))}
+                    <p style={{ margin: "0 0 6px", color: "#475569" }}>
+                      {job.location} · {formatJobType(job.type)}
+                    </p>
+                    <p style={{ margin: 0, color: "#475569" }}>
+                      {formatPay(job.pay)}
+                    </p>
+
+                    {job.description && (
+                      <p style={{ margin: "10px 0 0", color: "#475569", lineHeight: 1.5, fontSize: "0.95rem" }}>
+                        {job.description}
+                      </p>
+                    )}
+
+                    {Array.isArray(job.skills) && job.skills.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                        {job.skills.map((skill) => (
+                          <span
+                            key={skill}
+                            style={{
+                              borderRadius: "6px",
+                              background: "#e2e8f0",
+                              color: "#334155",
+                              padding: "4px 8px",
+                              fontSize: "0.85rem",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: "12px" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDraftEmail(job)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          color: "#2563eb",
+                          fontWeight: 600,
+                          fontSize: "0.95rem",
+                          cursor: "pointer",
+                          textDecoration: "none",
+                        }}
+                      >
+                        {isSuggestionOpen ? "Hide email suggestions" : "Draft email"}
+                      </button>
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {isSuggestionOpen && (
+                      <div
+                        style={{
+                          marginTop: "14px",
+                          padding: "16px",
+                          borderRadius: "10px",
+                          background: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                        }}
+                      >
+                        {suggestion?.loading ? (
+                          <p style={{ margin: 0, color: "#475569", fontSize: "0.95rem" }}>
+                            Generating email suggestions...
+                          </p>
+                        ) : suggestion?.error ? (
+                          <div>
+                            <p style={{ margin: "0 0 8px", color: "#b91c1c", fontSize: "0.95rem" }}>
+                              {suggestion.error}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleDraftEmail(job)}
+                              style={{
+                                border: "none",
+                                borderRadius: "6px",
+                                background: "#2563eb",
+                                color: "#ffffff",
+                                padding: "6px 12px",
+                                fontWeight: 600,
+                                fontSize: "0.85rem",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Try again
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <h3
+                              style={{
+                                margin: "0 0 6px",
+                                fontSize: "1rem",
+                                color: "#0f172a",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Suggestions for reaching out to {suggestion?.companyName || "the recruiter"}:
+                            </h3>
+                            <p style={{ margin: "0 0 10px", color: "#64748b", fontSize: "0.88rem" }}>
+                              Use these key talking points to guide your message:
+                            </p>
+
+                            <ul
+                              style={{
+                                margin: "0 0 14px",
+                                paddingLeft: "20px",
+                                display: "grid",
+                                gap: "6px",
+                                color: "#334155",
+                                fontSize: "0.92rem",
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              {suggestion?.suggestions?.map((item, i) => (
+                                <li key={i}>{item}</li>
+                              ))}
+                            </ul>
+
+                            <div style={{ marginTop: "12px" }}>
+                              <label
+                                htmlFor={`draft-${job.id}`}
+                                style={{
+                                  display: "block",
+                                  marginBottom: "6px",
+                                  fontSize: "0.88rem",
+                                  fontWeight: 600,
+                                  color: "#334155",
+                                }}
+                              >
+                                Email draft
+                              </label>
+                              <textarea
+                                id={`draft-${job.id}`}
+                                rows={5}
+                                value={suggestion?.draftText || ""}
+                                onChange={(e) => handleUpdateDraft(job.id!, e.target.value)}
+                                style={{
+                                  width: "100%",
+                                  boxSizing: "border-box",
+                                  borderRadius: "8px",
+                                  border: "1px solid #cbd5e1",
+                                  padding: "10px",
+                                  fontFamily: "inherit",
+                                  fontSize: "0.92rem",
+                                  lineHeight: 1.45,
+                                  color: "#0f172a",
+                                  resize: "vertical",
+                                }}
+                              />
+
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "flex-end",
+                                  gap: "8px",
+                                  marginTop: "10px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {job.company?.email && (
+                                  <a
+                                    href={`mailto:${job.company.email}?subject=${encodeURIComponent(
+                                      `Application for ${job.title} - ${user?.firstName || "Applicant"}`,
+                                    )}&body=${encodeURIComponent(suggestion?.draftText || "")}`}
+                                    style={{
+                                      textDecoration: "none",
+                                      background: "#f1f5f9",
+                                      color: "#334155",
+                                      border: "1px solid #cbd5e1",
+                                      borderRadius: "6px",
+                                      padding: "6px 12px",
+                                      fontWeight: 600,
+                                      fontSize: "0.88rem",
+                                      display: "inline-block",
+                                    }}
+                                  >
+                                    Open mail client
+                                  </a>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyEmail(job.id!)}
+                                  style={{
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    background: suggestion?.copied ? "#16a34a" : "#2563eb",
+                                    color: "#ffffff",
+                                    padding: "6px 14px",
+                                    fontWeight: 600,
+                                    fontSize: "0.88rem",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {suggestion?.copied ? "Copied" : "Copy email text"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -286,15 +568,6 @@ const Interested = () => {
   );
 };
 
-const JobDetail = ({ label, value }: { label: string; value?: string | number }) => (
-  <div>
-    <div style={{ color: "#64748b", fontSize: "0.8rem", fontWeight: 700 }}>
-      {label}
-    </div>
-    <div style={{ color: "#0f172a", marginTop: "2px" }}>{value || "Not listed"}</div>
-  </div>
-);
-
 const formatCompanyName = (company?: InterestedJob["company"]) =>
   [company?.first_name, company?.last_name].filter(Boolean).join(" ") ||
   company?.username ||
@@ -302,7 +575,7 @@ const formatCompanyName = (company?: InterestedJob["company"]) =>
 
 const formatPay = (pay?: string | number) => {
   if (pay === undefined || pay === null || pay === "") {
-    return undefined;
+    return "Pay not listed";
   }
 
   const numericPay = Number(pay);
@@ -316,7 +589,7 @@ const formatPay = (pay?: string | number) => {
 
 const formatJobType = (type?: string) => {
   if (!type) {
-    return undefined;
+    return "Not listed";
   }
 
   return type
