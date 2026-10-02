@@ -439,26 +439,28 @@ const Interested = () => {
                       </div>
                     )}
 
-                    <div style={{ marginTop: "12px" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleDraftEmail(job)}
-                        style={{
-                          border: "none",
-                          background: "transparent",
-                          padding: 0,
-                          color: "#2563eb",
-                          fontWeight: 600,
-                          fontSize: "0.95rem",
-                          cursor: "pointer",
-                          textDecoration: "none",
-                        }}
-                      >
-                        {isSuggestionOpen ? "Hide email suggestions" : "Draft email"}
-                      </button>
-                    </div>
+                    {isMutualMatch && (
+                      <div style={{ marginTop: "12px" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDraftEmail(job)}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            color: "#2563eb",
+                            fontWeight: 600,
+                            fontSize: "0.95rem",
+                            cursor: "pointer",
+                            textDecoration: "none",
+                          }}
+                        >
+                          {isSuggestionOpen ? "Hide email suggestions" : "Draft email"}
+                        </button>
+                      </div>
+                    )}
 
-                    {isSuggestionOpen && (
+                    {isMutualMatch && isSuggestionOpen && (
                       <div
                         style={{
                           marginTop: "14px",
