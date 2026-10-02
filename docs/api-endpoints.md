@@ -263,6 +263,21 @@ Returns `201 Created` with the Resume object. Because a resume owner is one-to-o
 
 Applicant and owner only. Include any subset of the create fields. Each supplied collection (`experience`, `education`, or `skills`) replaces that complete collection atomically; omitted collections remain unchanged. Returns `200 OK` with the updated Resume object. Returns `404` when the resume is absent or owned by another applicant.
 
+### Upload a PDF resume
+
+`POST /api/resume/upload/`
+
+Applicant only. Uses multipart form data with a required PDF file field named `file`:
+
+```http
+Authorization: Token <token>
+Content-Type: multipart/form-data
+```
+
+The uploaded PDF is parsed into the same Resume fields used by the create and update endpoints. If the authenticated applicant does not have a resume, the endpoint creates one and returns `201 Created` with the Resume object. If the applicant already has a resume, the endpoint replaces the resume summary, experience, education, and skills with the parsed PDF values and returns `200 OK` with the updated Resume object.
+
+Returns `400` when the file is missing, is not a PDF, cannot be parsed, or produces invalid resume data. Returns `401` for a recruiter. The server requires `ANTHROPIC_API_KEY` to parse PDF resumes. Set `ANTHROPIC_MODELS` to a comma-separated list to override the default Anthropic fallback models.
+
 ## Matching endpoints
 
 ### Get matching resumes

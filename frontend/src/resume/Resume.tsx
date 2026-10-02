@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import SideMenu from "../pages/Menu.js";
 import { useUserInfo } from "../userInfo/userInfoHooks.js";
 import "./Resume.css";
@@ -57,6 +57,26 @@ type ResumeResponse = {
 
 const API_BASE_URL = "http://localhost:8000/api";
 
+const extractErrorMessage = (errorData: any, fallback: string) => {
+  const candidates = [
+    errorData?.file,
+    errorData?.detail,
+    errorData?.error,
+    errorData?.non_field_errors,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length > 0) {
+      return String(candidate[0]);
+    }
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return fallback;
+};
+
 const createEmptyEducation = (id: number): EducationDraft => ({
   id,
   title: "",
@@ -97,11 +117,44 @@ const ResumePage = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [showSubmitErrorToast, setShowSubmitErrorToast] = useState(false);
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
 
   const showResumeError = (message: string) => {
     setSubmitError(message);
     setShowSubmitErrorToast(true);
   };
+
+  const applyResumeResponse = useCallback((resume: ResumeResponse) => {
+    setResumeId(resume.id);
+    setPersonalSummary(resume.summary);
+    setSkills(resume.skills);
+    setEducationEntries(
+      resume.education.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        degree: entry.degree,
+        major: entry.major,
+        gpa: entry.gpa ?? "",
+        start: entry.start_date,
+        end: entry.end_date ?? "",
+        description: entry.description,
+        saved: true,
+      })),
+    );
+    setExperienceEntries(
+      resume.experience.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        company: entry.company,
+        start: entry.start_date,
+        end: entry.end_date ?? "",
+        currentJob: entry.current_job,
+        description: entry.description,
+        type: entry.type,
+        saved: true,
+      })),
+    );
+  }, []);
 
   useEffect(() => {
     if (!showSubmitErrorToast) {
@@ -159,35 +212,7 @@ const ResumePage = () => {
         }
 
         const resume: ResumeResponse = await response.json();
-        setResumeId(resume.id);
-        setPersonalSummary(resume.summary);
-        setSkills(resume.skills);
-        setEducationEntries(
-          resume.education.map((entry) => ({
-            id: entry.id,
-            title: entry.title,
-            degree: entry.degree,
-            major: entry.major,
-            gpa: entry.gpa ?? "",
-            start: entry.start_date,
-            end: entry.end_date ?? "",
-            description: entry.description,
-            saved: true,
-          })),
-        );
-        setExperienceEntries(
-          resume.experience.map((entry) => ({
-            id: entry.id,
-            title: entry.title,
-            company: entry.company,
-            start: entry.start_date,
-            end: entry.end_date ?? "",
-            currentJob: entry.current_job,
-            description: entry.description,
-            type: entry.type,
-            saved: true,
-          })),
-        );
+        applyResumeResponse(resume);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setSubmitError(
@@ -202,7 +227,7 @@ const ResumePage = () => {
 
     void loadResume();
     return () => controller.abort();
-  }, [auth, user]);
+  }, [applyResumeResponse, auth, user]);
 
   const addSkill = () => {
     const trimmedSkill = skillInput.trim();
@@ -421,11 +446,9 @@ const ResumePage = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        const message =
-          errorData?.detail ||
-          errorData?.non_field_errors?.[0] ||
-          "The resume could not be saved.";
-        throw new Error(message);
+        throw new Error(
+          extractErrorMessage(errorData, "The resume could not be saved."),
+        );
       }
 
       const savedResume: ResumeResponse = await response.json();
@@ -439,6 +462,68 @@ const ResumePage = () => {
           ? error.message
           : "The resume could not be saved.";
       showResumeError(message);
+    }
+  };
+
+  const handlePdfUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = "";
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    if (!selectedFile) {
+      return;
+    }
+
+    if (!auth) {
+      showResumeError("You must be logged in to upload your resume.");
+      return;
+    }
+
+    if (
+      selectedFile.type !== "application/pdf" &&
+      !selectedFile.name.toLowerCase().endsWith(".pdf")
+    ) {
+      showResumeError("Please upload a PDF resume.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    setIsUploadingPdf(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/resume/upload/`, {
+        method: "POST",
+        headers: { Authorization: `Token ${auth}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          extractErrorMessage(
+            errorData,
+            "The PDF resume could not be uploaded.",
+          ),
+        );
+      }
+
+      const uploadedResume: ResumeResponse = await response.json();
+      applyResumeResponse(uploadedResume);
+      setSubmitSuccess(
+        response.status === 201
+          ? "Resume created from PDF."
+          : "Resume updated from PDF.",
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The PDF resume could not be uploaded.";
+      showResumeError(message);
+    } finally {
+      setIsUploadingPdf(false);
     }
   };
 
@@ -474,6 +559,27 @@ const ResumePage = () => {
           <p className="resume-subtitle">
             Add your personal summary, experience, education, and skills.
           </p>
+
+          <section className="resume-upload-box">
+            <div>
+              <h2 className="resume-upload-heading">Upload a PDF resume</h2>
+              <p className="resume-upload-copy">
+                Create or update your resume fields from an existing PDF.
+              </p>
+            </div>
+            <label
+              className={`resume-upload-button ${isUploadingPdf ? "resume-upload-button-disabled" : ""}`}
+            >
+              {isUploadingPdf ? "Parsing PDF..." : "Choose PDF"}
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handlePdfUpload}
+                disabled={isUploadingPdf}
+                className="resume-file-input"
+              />
+            </label>
+          </section>
 
           {isLoading ? (
             <p className="resume-subtitle">Loading your resume…</p>

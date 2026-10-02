@@ -1,10 +1,17 @@
+import base64
 import json
-import anthropic
+import re
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
+import requests
 from decouple import config
 from django.contrib.auth import authenticate
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
 from rest_framework.authtoken.models import Token
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -121,6 +128,242 @@ class ResumeView(APIView):
         else:
             resume = get_object_or_404(Resume, pk=resume_id, owner=request.user)
         serializer = ResumeSerializer(resume, data=request.data, partial=resume is not None)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(owner=request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK if resume else status.HTTP_201_CREATED)
+
+
+def _clean_json_response(response_text):
+    clean_text = response_text.strip()
+    if clean_text.startswith("```json"):
+        clean_text = clean_text[7:]
+    if clean_text.startswith("```"):
+        clean_text = clean_text[3:]
+    if clean_text.endswith("```"):
+        clean_text = clean_text[:-3]
+    return json.loads(clean_text.strip())
+
+
+def _coerce_resume_date(value):
+    if value is None:
+        return None
+    value = str(value).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value
+    if re.fullmatch(r"\d{4}-\d{2}", value):
+        return f"{value}-01"
+    if re.fullmatch(r"\d{4}", value):
+        return f"{value}-01-01"
+    return None
+
+
+def _coerce_gpa(value):
+    if value in (None, ""):
+        return None
+    try:
+        gpa = float(value)
+    except (TypeError, ValueError):
+        return None
+    if gpa < 0 or gpa > 4:
+        return None
+    return f"{gpa:.2f}"
+
+
+def normalize_parsed_resume(parsed_resume):
+    if not isinstance(parsed_resume, dict):
+        raise serializers.ValidationError({"file": "The PDF parser did not return a resume object."})
+
+    raw_skills = parsed_resume.get("skills", [])
+    if isinstance(raw_skills, str):
+        raw_skills = [skill.strip() for skill in raw_skills.split(",")]
+
+    normalized = {
+        "summary": str(parsed_resume.get("summary") or "Resume parsed from PDF.").strip(),
+        "experience": [],
+        "education": [],
+        "skills": [str(skill).strip() for skill in raw_skills if str(skill).strip()],
+    }
+
+    raw_experience = parsed_resume.get("experience", parsed_resume.get("experiences", []))
+    for entry in raw_experience if isinstance(raw_experience, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        start_date = _coerce_resume_date(entry.get("start_date")) or "1900-01-01"
+        end_date = _coerce_resume_date(entry.get("end_date"))
+        current_job = bool(entry.get("current_job")) or end_date is None
+        entry_type = entry.get("type") if entry.get("type") in ("job", "project") else "job"
+        normalized["experience"].append(
+            {
+                "title": str(entry.get("title") or "Experience").strip(),
+                "company": str(entry.get("company") or "").strip(),
+                "start_date": start_date,
+                "end_date": None if current_job else end_date,
+                "current_job": current_job,
+                "description": str(entry.get("description") or "").strip(),
+                "type": entry_type,
+            }
+        )
+
+    raw_education = parsed_resume.get("education", [])
+    for entry in raw_education if isinstance(raw_education, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or entry.get("school") or "").strip()
+        if not title:
+            continue
+        normalized["education"].append(
+            {
+                "title": title,
+                "degree": str(entry.get("degree") or "Not specified").strip(),
+                "major": str(entry.get("major") or "Not specified").strip(),
+                "gpa": _coerce_gpa(entry.get("gpa")),
+                "start_date": _coerce_resume_date(entry.get("start_date")) or "1900-01-01",
+                "end_date": _coerce_resume_date(entry.get("end_date")),
+                "description": str(entry.get("description") or "").strip(),
+            }
+        )
+
+    return normalized
+
+
+def _anthropic_content_text(message):
+    content = message["content"] if isinstance(message, dict) else message.content
+    text_parts = []
+    for block in content:
+        block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+        block_text = block.get("text") if isinstance(block, dict) else getattr(block, "text", "")
+        if block_type == "text" and block_text:
+            text_parts.append(block_text)
+    return "\n".join(text_parts).strip()
+
+
+def _anthropic_models():
+    configured_models = config("ANTHROPIC_MODELS", default="")
+    if configured_models:
+        return [model.strip() for model in configured_models.split(",") if model.strip()]
+    return ["claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5"]
+
+
+def _create_anthropic_message(api_key, model_name, system_prompt, pdf_data, user_message):
+    content = [
+        {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": pdf_data,
+            },
+        },
+        {"type": "text", "text": user_message},
+    ]
+
+    if anthropic is not None:
+        client = anthropic.Anthropic(api_key=api_key)
+        return client.messages.create(
+            model=model_name,
+            max_tokens=4000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": content}],
+        )
+
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": model_name,
+            "max_tokens": 4000,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": content}],
+        },
+        timeout=60,
+    )
+    if not response.ok:
+        raise ValueError(f"Anthropic API returned {response.status_code}: {response.text}")
+    return response.json()
+
+
+def parse_resume_pdf_with_anthropic(uploaded_file):
+    api_key = config("ANTHROPIC_API_KEY", default="")
+    if not api_key:
+        raise serializers.ValidationError({"file": "ANTHROPIC_API_KEY is not configured."})
+
+    pdf_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+    if not pdf_bytes:
+        raise serializers.ValidationError({"file": "The uploaded PDF is empty."})
+
+    system_prompt = (
+        "You convert resume PDFs into strict JSON for an applicant tracking system. "
+        "Return ONLY valid JSON. Do not include markdown fences or commentary. "
+        "Use this exact shape: "
+        "{\"summary\":\"string\",\"experience\":[{\"title\":\"string\",\"company\":\"string\","
+        "\"start_date\":\"YYYY-MM-DD\",\"end_date\":null,\"current_job\":true,"
+        "\"description\":\"string\",\"type\":\"job\"}],"
+        "\"education\":[{\"title\":\"string\",\"degree\":\"string\",\"major\":\"string\","
+        "\"gpa\":null,\"start_date\":\"YYYY-MM-DD\",\"end_date\":null,\"description\":\"string\"}],"
+        "\"skills\":[\"string\"]}. "
+        "Experience type must be either \"job\" or \"project\". "
+        "Use null for unknown optional end dates or GPA. "
+        "For unknown required dates, use the first day of the known month or year. "
+        "For missing required strings, use an empty string only when the PDF truly does not provide the value."
+    )
+    user_message = (
+        "Parse this PDF resume into the JSON shape from the system instructions. "
+        "Summarize the candidate in one concise paragraph using only resume evidence."
+    )
+
+    models_to_try = _anthropic_models()
+    response_text = None
+    last_error = None
+    pdf_data = base64.b64encode(pdf_bytes).decode("utf-8")
+    for model_name in models_to_try:
+        try:
+            msg = _create_anthropic_message(api_key, model_name, system_prompt, pdf_data, user_message)
+            response_text = _anthropic_content_text(msg)
+            break
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if not response_text:
+        attempted_models = ", ".join(models_to_try)
+        raise serializers.ValidationError(
+            {"file": f"Failed to parse the PDF resume with {attempted_models}: {last_error}"}
+        )
+
+    try:
+        return normalize_parsed_resume(_clean_json_response(response_text))
+    except Exception as exc:
+        raise serializers.ValidationError({"file": f"The PDF parser returned invalid JSON: {exc}"})
+
+
+class ResumeUploadView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        profile = get_object_or_404(UserProfile, user=request.user)
+        if profile.user_type != UserType.APPLICANT:
+            return unauthorized("Only applicants can create or update resumes.")
+
+        uploaded_file = request.FILES.get("file")
+        if uploaded_file is None:
+            raise serializers.ValidationError({"file": "A PDF file is required."})
+        is_pdf_content = uploaded_file.content_type == "application/pdf"
+        is_pdf_name = uploaded_file.name.lower().endswith(".pdf")
+        if not is_pdf_content and not is_pdf_name:
+            raise serializers.ValidationError({"file": "Only PDF files are supported."})
+
+        parsed_resume = parse_resume_pdf_with_anthropic(uploaded_file)
+        try:
+            resume = request.user.resumes
+        except Resume.DoesNotExist:
+            resume = None
+
+        serializer = ResumeSerializer(resume, data=parsed_resume, partial=False)
         serializer.is_valid(raise_exception=True)
         serializer.save(owner=request.user)
         return Response(serializer.data, status=status.HTTP_200_OK if resume else status.HTTP_201_CREATED)
@@ -289,6 +532,8 @@ class DraftMessageSuggestionsView(APIView):
         company_name = job.company.first_name or job.company.username
 
         api_key = config("ANTHROPIC_API_KEY", default="")
+        if anthropic is None:
+            return Response({"error": "The anthropic package is not installed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         if not api_key:
             return Response({"error": "ANTHROPIC_API_KEY is not configured."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -334,7 +579,7 @@ class DraftMessageSuggestionsView(APIView):
                     f"Applicant Experience: {'; '.join(resume_experiences)}\n"
                 )
 
-            models_to_try = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-sonnet-5"]
+            models_to_try = _anthropic_models()
             response_text = None
             for model_name in models_to_try:
                 try:

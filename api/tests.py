@@ -1,11 +1,13 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from .models import Job, Resume, Skill, UserProfile, UserType
+from .views import _anthropic_models, normalize_parsed_resume
 
 ZERO_VECTOR = [0.0] * 1536
 
@@ -127,6 +129,75 @@ class ResumeEndpointTests(APITestBase):
         UserProfile.objects.create(user=second, user_type=UserType.APPLICANT)
         self.authenticate(second)
         self.assertEqual(self.client.post(f"/api/resume/{resume.id}/", {"summary": "Stolen"}, format="json").status_code, 404)
+
+    def test_pdf_upload_creates_resume_when_none_exists(self):
+        self.authenticate(self.applicant)
+        uploaded_file = SimpleUploadedFile("resume.pdf", b"%PDF-1.4 resume", content_type="application/pdf")
+
+        with patch("api.views.parse_resume_pdf_with_anthropic", return_value=self.resume_payload()):
+            response = self.client.post("/api/resume/upload/", {"file": uploaded_file}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["summary"], "Backend developer")
+        self.assertEqual(response.data["skills"], ["Python", "Django"])
+        self.assertEqual(Resume.objects.get(owner=self.applicant).summary, "Backend developer")
+
+    def test_pdf_upload_updates_existing_resume(self):
+        resume = Resume.objects.create(owner=self.applicant, summary="Old summary")
+        self.authenticate(self.applicant)
+        payload = self.resume_payload()
+        payload["summary"] = "Parsed from PDF"
+        payload["skills"] = ["FastAPI"]
+        uploaded_file = SimpleUploadedFile("resume.pdf", b"%PDF-1.4 resume", content_type="application/pdf")
+
+        with patch("api.views.parse_resume_pdf_with_anthropic", return_value=payload):
+            response = self.client.post("/api/resume/upload/", {"file": uploaded_file}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], resume.id)
+        self.assertEqual(response.data["summary"], "Parsed from PDF")
+        self.assertEqual(response.data["skills"], ["FastAPI"])
+        resume.refresh_from_db()
+        self.assertEqual(resume.summary, "Parsed from PDF")
+
+    def test_pdf_upload_is_applicant_only_and_requires_pdf(self):
+        self.authenticate(self.recruiter)
+        uploaded_file = SimpleUploadedFile("resume.pdf", b"%PDF-1.4 resume", content_type="application/pdf")
+        self.assertEqual(self.client.post("/api/resume/upload/", {"file": uploaded_file}, format="multipart").status_code, 401)
+
+        self.authenticate(self.applicant)
+        text_file = SimpleUploadedFile("resume.txt", b"resume", content_type="text/plain")
+        response = self.client.post("/api/resume/upload/", {"file": text_file}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pdf_upload_accepts_incomplete_parsed_resume_data(self):
+        self.authenticate(self.applicant)
+        parsed_payload = {
+            "summary": "Technology leader",
+            "experience": [{"title": "Co-founder", "company": "Microsoft", "start_date": "1975"}],
+            "education": [{"title": "Harvard University"}],
+            "skills": "Software, Leadership",
+        }
+        uploaded_file = SimpleUploadedFile("resume.pdf", b"%PDF-1.4 resume", content_type="application/octet-stream")
+
+        with patch("api.views.parse_resume_pdf_with_anthropic", return_value=normalize_parsed_resume(parsed_payload)):
+            response = self.client.post("/api/resume/upload/", {"file": uploaded_file}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["experience"][0]["start_date"], "1975-01-01")
+        self.assertEqual(response.data["education"][0]["degree"], "Not specified")
+        self.assertEqual(response.data["skills"], ["Software", "Leadership"])
+
+    def test_anthropic_models_default_to_current_aliases(self):
+        with patch("api.views.config", return_value=""):
+            self.assertEqual(
+                _anthropic_models(),
+                ["claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5"],
+            )
+
+    def test_anthropic_models_can_be_configured(self):
+        with patch("api.views.config", return_value="claude-haiku-4-5, claude-sonnet-5"):
+            self.assertEqual(_anthropic_models(), ["claude-haiku-4-5", "claude-sonnet-5"])
 
 
 class MatchingEndpointTests(APITestBase):
