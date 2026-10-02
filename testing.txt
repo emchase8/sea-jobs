@@ -6,6 +6,8 @@ python manage.py import_resumes test_resumes.csv
 
 python manage.py simulate_matches jdoe
 
+python manage.py simulate_network_matches jdoe
+
 login as:
 username: jdoe
 password: password123

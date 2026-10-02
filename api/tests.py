@@ -201,12 +201,67 @@ class ResumeEndpointTests(APITestBase):
 
 
 class MatchingEndpointTests(APITestBase):
-    def test_matching_validates_query_params_and_never_returns_embeddings(self):
-        job = self.create_job()
-        resume = Resume.objects.create(owner=self.applicant, summary="Engineer")
+    def test_matching_requires_resume_and_returns_match_percentage(self):
         self.authenticate(self.applicant)
-        self.assertEqual(self.client.get("/api/matching/jobs/").status_code, 400)
+        # Without resume, returns 404
+        self.assertEqual(self.client.get("/api/matching/jobs/").status_code, 404)
+
+        job = self.create_job()
+        job.composite_score = 0.15  # 85% match (1 - 0.15)
+        resume = Resume.objects.create(owner=self.applicant, summary="Engineer")
+
         with patch("api.views.find_matching_jobs_for_resume", return_value=[job]):
-            response = self.client.get(f"/api/matching/jobs/?resume_id={resume.id}")
+            response = self.client.get("/api/matching/jobs/")
+        
         self.assertEqual(response.status_code, 200)
         self.assert_no_embeddings(response.data)
+        self.assertEqual(response.data[0]["match_percentage"], 85)
+
+    def test_job_serializer_match_percentage(self):
+        job = self.create_job()
+        job.composite_score = 0.22
+        from .serializers import JobSerializer
+        serializer = JobSerializer(job)
+        self.assertEqual(serializer.data["match_percentage"], 78)
+
+
+class NetworkEndpointTests(APITestBase):
+    def setUp(self):
+        super().setUp()
+        self.peer = User.objects.create_user("peer_applicant", password="StrongPass123!")
+        UserProfile.objects.create(user=self.peer, user_type=UserType.APPLICANT, description="Frontend Dev")
+        self.applicant_resume = Resume.objects.create(owner=self.applicant, summary="Backend Dev")
+        self.peer_resume = Resume.objects.create(owner=self.peer, summary="Frontend Dev")
+
+    def test_matching_peers_endpoint(self):
+        self.authenticate(self.applicant)
+        response = self.client.get("/api/matching/peers/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(len(response.data) >= 1)
+
+    def test_peer_swipe_and_mutual_match(self):
+        # Applicant swipes yes on peer
+        self.authenticate(self.applicant)
+        res1 = self.client.post("/api/swipe/peer/", {"peer_user_id": self.peer.id, "is_interested": True}, format="json")
+        self.assertEqual(res1.status_code, 200)
+        self.assertFalse(res1.data["is_mutual_match"])
+
+        # Peer swipes yes on applicant
+        self.authenticate(self.peer)
+        res2 = self.client.post("/api/swipe/peer/", {"peer_user_id": self.applicant.id, "is_interested": True}, format="json")
+        self.assertEqual(res2.status_code, 200)
+        self.assertTrue(res2.data["is_mutual_match"])
+
+        # Check mutual matches list
+        res3 = self.client.get("/api/matches/network/")
+        self.assertEqual(res3.status_code, 200)
+        self.assertEqual(len(res3.data), 1)
+        self.assertEqual(res3.data[0]["peer_user"]["username"], "applicant")
+
+    def test_draft_network_email_suggestions(self):
+        self.authenticate(self.applicant)
+        res = self.client.post("/api/matches/draft-network-suggestions/", {"peer_user_id": self.peer.id}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("suggestions", res.data)
+        self.assertIn("draft_email", res.data)
+

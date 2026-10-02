@@ -8,9 +8,33 @@ const formatDate = (date: Date | null) => {
   }).format(date);
 };
 
-const MatchResume = ({ applicant }: { applicant: ApplicantUser }) => {
+interface MatchResumeProps {
+  applicant: ApplicantUser & { matchPercentage?: number | null };
+}
+
+const MatchResume = ({ applicant }: MatchResumeProps) => {
   const name = `${applicant.firstName} ${applicant.lastName}`;
   const resume = applicant.resume!;
+  const matchPercentage = applicant.matchPercentage ?? null;
+
+  let badgeBg = "#eff6ff";
+  let badgeBorder = "#bfdbfe";
+  let badgeColor = "#1d4ed8";
+  let barGradient = "linear-gradient(90deg, #3b82f6, #60a5fa)";
+
+  if (matchPercentage !== null) {
+    if (matchPercentage >= 80) {
+      badgeBg = "#ecfdf5";
+      badgeBorder = "#a7f3d0";
+      badgeColor = "#047857";
+      barGradient = "linear-gradient(90deg, #10b981, #34d399)";
+    } else if (matchPercentage < 60) {
+      badgeBg = "#fffbeb";
+      badgeBorder = "#fde68a";
+      badgeColor = "#b45309";
+      barGradient = "linear-gradient(90deg, #f59e0b, #fbbf24)";
+    }
+  }
 
   return (
     <div
@@ -28,7 +52,25 @@ const MatchResume = ({ applicant }: { applicant: ApplicantUser }) => {
         textAlign: "left",
       }}
     >
-      <h1 style={{ margin: "0 0 25px", textAlign: "center" }}>{name}</h1>
+      <h1 style={{ margin: matchPercentage !== null ? "0 0 10px" : "0 0 25px", textAlign: "center" }}>{name}</h1>
+
+      {matchPercentage !== null && (
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "25px" }}>
+          <span
+            style={{
+              backgroundColor: badgeBg,
+              border: `1px solid ${badgeBorder}`,
+              color: badgeColor,
+              padding: "4px 14px",
+              borderRadius: "999px",
+              fontWeight: 700,
+              fontSize: "0.9rem"
+            }}
+          >
+            {matchPercentage}% Match
+          </span>
+        </div>
+      )}
 
       <section style={{ marginBottom: "24px" }}>
         <h3 style={{ margin: "0 0 8px" }}>Summary</h3>

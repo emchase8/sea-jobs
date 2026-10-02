@@ -6,6 +6,7 @@ from .views import (
     LoginView,
     MatchingJobs,
     MatchingResumes,
+    MatchingPeersView,
     RegisterView,
     ResumeUploadView,
     ResumeView,
@@ -13,8 +14,11 @@ from .views import (
     UserView,
     GetMatchesForJobView,
     GetMatchesForResumeView,
+    GetNetworkMatchesView,
     SwipeView,
+    PeerSwipeView,
     DraftMessageSuggestionsView,
+    DraftNetworkEmailSuggestionsView,
 )
 
 urlpatterns = [
@@ -30,8 +34,13 @@ urlpatterns = [
     path("resume/<int:resume_id>/", ResumeView.as_view(), name="resume-detail"),
     path("matching/resumes/", MatchingResumes.as_view(), name="matching-resumes"),
     path("matching/jobs/", MatchingJobs.as_view(), name="matching-jobs"),
+    path("matching/peers/", MatchingPeersView.as_view(), name="matching-peers"),
     path("matches/applicant/", GetMatchesForResumeView.as_view(), name="applicant-matches"),
     path("matches/recruiter/<int:job_id>/", GetMatchesForJobView.as_view(), name="recruiter-matches"),
+    path("matches/network/", GetNetworkMatchesView.as_view(), name="network-matches"),
     path("matches/draft-suggestions/", DraftMessageSuggestionsView.as_view(), name="draft-message-suggestions"),
+    path("matches/draft-network-suggestions/", DraftNetworkEmailSuggestionsView.as_view(), name="draft-network-suggestions"),
     path("swipe/", SwipeView.as_view(), name="swipe"),
+    path("swipe/peer/", PeerSwipeView.as_view(), name="peer-swipe"),
 ]
+

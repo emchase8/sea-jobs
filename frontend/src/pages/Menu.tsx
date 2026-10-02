@@ -25,6 +25,9 @@ const SideMenu = ({ userType }: { userType: string }) => {
           <Link className="menu-item" to="/applicant/match">
             Match
           </Link>
+          <Link className="menu-item" to="/applicant/network">
+            Network
+          </Link>
           <Link className="menu-item" to="/applicant/interested">
             Interested
           </Link>

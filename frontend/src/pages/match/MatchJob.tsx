@@ -1,6 +1,29 @@
-import { CompanyUser, Job } from "shared";
+interface MatchJobProps {
+  company: CompanyUser;
+  job: Job & { matchPercentage?: number | null };
+}
 
-const MatchJob = ({ company, job }: { company: CompanyUser; job: Job }) => {
+const MatchJob = ({ company, job }: MatchJobProps) => {
+  const matchPercentage = job.matchPercentage ?? null;
+
+  let badgeBg = "#eff6ff";
+  let badgeBorder = "#bfdbfe";
+  let badgeColor = "#1d4ed8";
+  let barGradient = "linear-gradient(90deg, #3b82f6, #60a5fa)";
+
+  if (matchPercentage !== null) {
+    if (matchPercentage >= 80) {
+      badgeBg = "#ecfdf5";
+      badgeBorder = "#a7f3d0";
+      badgeColor = "#047857";
+      barGradient = "linear-gradient(90deg, #10b981, #34d399)";
+    } else if (matchPercentage < 60) {
+      badgeBg = "#fffbeb";
+      badgeBorder = "#fde68a";
+      badgeColor = "#b45309";
+      barGradient = "linear-gradient(90deg, #f59e0b, #fbbf24)";
+    }
+  }
 
   return (
     <div
@@ -18,9 +41,29 @@ const MatchJob = ({ company, job }: { company: CompanyUser; job: Job }) => {
         textAlign: "left"
       }}
     >
-      <h2 style={{ margin: "0 0 20px", textAlign: "center" }}>{job.jobTitle}</h2>
+      <h2 style={{ margin: "0 0 8px", textAlign: "center" }}>{job.jobTitle}</h2>
 
-      <div style={{ marginBottom: "20px", fontWeight: 600 }}>{company.companyName}</div>
+      <div style={{ marginBottom: matchPercentage !== null ? "12px" : "20px", fontWeight: 600, textAlign: "center", color: "#4b5563" }}>
+        {company.companyName}
+      </div>
+
+      {matchPercentage !== null && (
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
+          <span
+            style={{
+              backgroundColor: badgeBg,
+              border: `1px solid ${badgeBorder}`,
+              color: badgeColor,
+              padding: "4px 14px",
+              borderRadius: "999px",
+              fontWeight: 700,
+              fontSize: "0.9rem"
+            }}
+          >
+            {matchPercentage}% Match
+          </span>
+        </div>
+      )}
 
       <section style={{ marginBottom: "20px" }}>
         <div>

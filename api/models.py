@@ -210,3 +210,30 @@ class Match(models.Model):
                 name='unique_mutual_match'
             )
         ]
+
+
+class NetworkMatch(models.Model):
+    user1 = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="network_matches_as_user1",
+    )
+    user2 = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="network_matches_as_user2",
+    )
+
+    # null = hasn't swiped yet, False = swiped left (Pass), True = swiped right (Connect)
+    user1_swiped_yes = models.BooleanField(null=True, blank=True)
+    user2_swiped_yes = models.BooleanField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user1", "user2"],
+                name="unique_peer_network_match"
+            )
+        ]

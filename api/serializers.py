@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import Education, Experience, Job, Resume, Skill, UserProfile, UserType, Match
+from .models import Education, Experience, Job, Resume, Skill, UserProfile, UserType, Match, NetworkMatch
 
 User = get_user_model()
 
@@ -87,11 +87,19 @@ class ResumeSerializer(serializers.ModelSerializer):
     experience = ExperienceSerializer(many=True, source="experiences")
     education = EducationSerializer(many=True)
     skills = SkillListField(child=serializers.CharField(max_length=255))
+    match_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = Resume
-        fields = ["id", "owner", "summary", "experience", "education", "skills"]
+        fields = ["id", "owner", "summary", "experience", "education", "skills", "match_percentage"]
         read_only_fields = ["id", "owner"]
+
+    def get_match_percentage(self, obj):
+        composite_score = getattr(obj, "composite_score", None)
+        if composite_score is None:
+            return None
+        similarity = max(0.0, min(1.0, 1.0 - float(composite_score)))
+        return round(similarity * 100)
 
     @transaction.atomic
     def create(self, validated_data):
@@ -130,11 +138,19 @@ class ResumeSerializer(serializers.ModelSerializer):
 class JobSerializer(serializers.ModelSerializer):
     company = UserSerializer(read_only=True)
     skills = SkillListField(child=serializers.CharField(max_length=255))
+    match_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
-        fields = ["id", "title", "company", "location", "pay", "type", "description", "skills"]
+        fields = ["id", "title", "company", "location", "pay", "type", "description", "skills", "match_percentage"]
         read_only_fields = ["id", "company"]
+
+    def get_match_percentage(self, obj):
+        composite_score = getattr(obj, "composite_score", None)
+        if composite_score is None:
+            return None
+        similarity = max(0.0, min(1.0, 1.0 - float(composite_score)))
+        return round(similarity * 100)
 
     @transaction.atomic
     def create(self, validated_data):
@@ -172,3 +188,47 @@ class MatchSerializer(serializers.ModelSerializer):
 
     def get_is_mutual_match(self, obj):
         return bool(obj.applicant_swiped_yes is True and obj.employer_swiped_yes is True)
+
+
+class NetworkMatchSerializer(serializers.ModelSerializer):
+    user1 = UserSerializer(read_only=True)
+    user2 = UserSerializer(read_only=True)
+    peer_user = serializers.SerializerMethodField()
+    peer_resume = serializers.SerializerMethodField()
+    is_mutual_match = serializers.SerializerMethodField()
+
+    class Meta:
+        model = NetworkMatch
+        fields = [
+            "id",
+            "user1",
+            "user2",
+            "peer_user",
+            "peer_resume",
+            "user1_swiped_yes",
+            "user2_swiped_yes",
+            "is_mutual_match",
+            "created_at",
+        ]
+        read_only_fields = ["id"]
+
+    def get_is_mutual_match(self, obj):
+        return bool(obj.user1_swiped_yes is True and obj.user2_swiped_yes is True)
+
+    def get_peer_user(self, obj):
+        request_user = self.context.get("request_user")
+        if not request_user:
+            return UserSerializer(obj.user2).data
+        other = obj.user2 if obj.user1_id == request_user.id else obj.user1
+        return UserSerializer(other).data
+
+    def get_peer_resume(self, obj):
+        request_user = self.context.get("request_user")
+        if not request_user:
+            peer = obj.user2
+        else:
+            peer = obj.user2 if obj.user1_id == request_user.id else obj.user1
+        try:
+            return ResumeSerializer(peer.resumes).data
+        except Resume.DoesNotExist:
+            return None

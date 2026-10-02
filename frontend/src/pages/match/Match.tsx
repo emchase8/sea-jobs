@@ -89,8 +89,9 @@ const Match = () => {
         formattedMatches = data.map((djangoResume: any) => ({
           type: "applicant",
           applicant: {
-            firstName: djangoResume.owner_first_name || "Applicant",
-            lastName: djangoResume.owner_last_name || "",
+            firstName: djangoResume.owner?.first_name || djangoResume.owner_first_name || "Applicant",
+            lastName: djangoResume.owner?.last_name || djangoResume.owner_last_name || "",
+            matchPercentage: djangoResume.match_percentage ?? null,
             resume: {
               id: djangoResume.id,
               personalSummary: djangoResume.summary,
@@ -111,9 +112,10 @@ const Match = () => {
             type: djangoJob.type,
             description: djangoJob.description,
             skillsNeeded: djangoJob.skills || [],
+            matchPercentage: djangoJob.match_percentage ?? null,
           },
           company: { 
-            companyName: djangoJob.company_name || "Company"
+            companyName: djangoJob.company?.company_name || djangoJob.company_name || "Company"
           }
         }));
       }

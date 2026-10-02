@@ -8,6 +8,8 @@ except ImportError:
 import requests
 from decouple import config
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
 from rest_framework.authtoken.models import Token
@@ -16,9 +18,16 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .matching import find_matching_jobs_for_resume, find_matching_resumes_for_job
-from .models import Job, Match, Resume, UserProfile, UserType
-from .serializers import JobSerializer, MatchSerializer, RegisterSerializer, ResumeSerializer, UserProfileSerializer
+from .matching import find_matching_jobs_for_resume, find_matching_resumes_for_job, find_matching_peers_for_resume
+from .models import Job, Match, NetworkMatch, Resume, UserProfile, UserType
+from .serializers import (
+    JobSerializer,
+    MatchSerializer,
+    NetworkMatchSerializer,
+    RegisterSerializer,
+    ResumeSerializer,
+    UserProfileSerializer,
+)
 
 
 def unauthorized(message):
@@ -624,3 +633,183 @@ class DraftMessageSuggestionsView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MatchingPeersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            resume = request.user.resumes
+        except Resume.DoesNotExist:
+            return Response(
+                {"error": "You do not have a resume set up yet."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        ranked_peers = find_matching_peers_for_resume(resume)
+        serializer = ResumeSerializer(ranked_peers, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PeerSwipeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        peer_user_id = request.data.get("peer_user_id")
+        is_interested = request.data.get("is_interested")
+
+        if peer_user_id is None or is_interested is None:
+            return Response(
+                {"error": "peer_user_id and is_interested are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if int(peer_user_id) == request.user.id:
+            return Response(
+                {"error": "You cannot swipe on yourself."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        peer_user = get_object_or_404(User, pk=peer_user_id)
+
+        # Normalize user ordering so user1.id < user2.id
+        if request.user.id < peer_user.id:
+            u1, u2 = request.user, peer_user
+        else:
+            u1, u2 = peer_user, request.user
+
+        match_record, _ = NetworkMatch.objects.get_or_create(user1=u1, user2=u2)
+
+        if request.user == u1:
+            match_record.user1_swiped_yes = is_interested
+        else:
+            match_record.user2_swiped_yes = is_interested
+
+        match_record.save()
+
+        is_mutual_match = (
+            match_record.user1_swiped_yes is True and match_record.user2_swiped_yes is True
+        )
+
+        return Response(
+            {
+                "message": "Peer swipe recorded successfully.",
+                "is_mutual_match": is_mutual_match,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class GetNetworkMatchesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        matches = NetworkMatch.objects.filter(
+            (Q(user1=user) & Q(user1_swiped_yes=True)) |
+            (Q(user2=user) & Q(user2_swiped_yes=True))
+        ).select_related("user1", "user2").order_by("-created_at")
+
+        serializer = NetworkMatchSerializer(matches, many=True, context={"request_user": user})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DraftNetworkEmailSuggestionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        peer_user_id = request.data.get("peer_user_id")
+        if not peer_user_id:
+            return Response({"error": "peer_user_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        peer_user = get_object_or_404(User, pk=peer_user_id)
+
+        try:
+            my_resume = request.user.resumes
+        except Resume.DoesNotExist:
+            return Response({"error": "You do not have a resume set up yet."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            peer_resume = peer_user.resumes
+        except Resume.DoesNotExist:
+            return Response({"error": "Peer user does not have a resume set up yet."}, status=status.HTTP_400_BAD_REQUEST)
+
+        my_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+        peer_name = f"{peer_user.first_name} {peer_user.last_name}".strip() or peer_user.username
+
+        my_skills = list(my_resume.skills.values_list("skill", flat=True))
+        peer_skills = list(peer_resume.skills.values_list("skill", flat=True))
+
+        my_exp = [f"{e.title} at {e.company}" for e in my_resume.experiences.all()]
+        peer_exp = [f"{e.title} at {e.company}" for e in peer_resume.experiences.all()]
+
+        api_key = config("ANTHROPIC_API_KEY", default="")
+
+        default_suggestions = [
+            f"Mention your shared interest or overlapping skills in {', '.join(peer_skills[:2]) if peer_skills else 'technology'}.",
+            f"Ask about their experience as a {peer_exp[0] if peer_exp else 'professional'}.",
+            "Propose a quick 15-minute coffee chat or virtual call to share career insights.",
+        ]
+        default_draft = (
+            f"Hi {peer_name},\n\n"
+            f"I came across your profile on SeaJobs and saw your background as a {peer_exp[0] if peer_exp else 'peer'}. "
+            f"I'm also passionate about {', '.join(peer_skills[:2]) if peer_skills else 'this field'} and would love to connect to exchange insights and network!\n\n"
+            f"Would you be open to a quick chat sometime soon?\n\n"
+            f"Best regards,\n{my_name}"
+        )
+
+        if not api_key:
+            return Response({
+                "suggestions": default_suggestions,
+                "draft_email": default_draft,
+                "peer_name": peer_name,
+                "peer_email": peer_user.email if peer_user.email else None,
+            }, status=status.HTTP_200_OK)
+
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            system_prompt = (
+                "You are an expert career networking assistant. Help this professional write a warm, engaging, "
+                "and concise networking outreach message to a peer candidate. "
+                "Provide 3 bullet points with conversation advice and a complete draft email text. "
+                "Output ONLY valid JSON in the format: {\"suggestions\": [\"...\", \"...\"], \"draft_email\": \"...\"}"
+            )
+            user_message = (
+                f"Sender Name: {my_name}\n"
+                f"Sender Summary: {my_resume.summary}\n"
+                f"Sender Skills: {', '.join(my_skills)}\n"
+                f"Sender Experience: {'; '.join(my_exp)}\n\n"
+                f"Recipient Peer Name: {peer_name}\n"
+                f"Recipient Summary: {peer_resume.summary}\n"
+                f"Recipient Skills: {', '.join(peer_skills)}\n"
+                f"Recipient Experience: {'; '.join(peer_exp)}\n"
+            )
+
+            msg = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=600,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            response_text = msg.content[0].text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+
+            parsed = json.loads(response_text.strip())
+            suggestions = parsed.get("suggestions", default_suggestions)
+            draft_email = parsed.get("draft_email", default_draft)
+        except Exception:
+            suggestions = default_suggestions
+            draft_email = default_draft
+
+        return Response({
+            "suggestions": suggestions,
+            "draft_email": draft_email,
+            "peer_name": peer_name,
+            "peer_email": peer_user.email if peer_user.email else None,
+        }, status=status.HTTP_200_OK)

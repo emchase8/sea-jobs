@@ -28,10 +28,10 @@ type InterestedJob = {
 };
 
 type SuggestionsState = {
-  [jobId: number]: {
+  [id: number]: {
     loading: boolean;
     suggestions: string[];
-    companyName: string;
+    companyName?: string;
     draftText?: string;
     copied?: boolean;
     error?: string;
@@ -44,14 +44,42 @@ type InterestedJobMatch = {
   isMutualMatch: boolean;
 };
 
+type NetworkConnectionItem = {
+  id: number;
+  peer_user: {
+    id: number;
+    username: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  };
+  peer_resume: {
+    id: number;
+    summary?: string;
+    skills?: string[];
+  } | null;
+  is_mutual_match: boolean;
+};
+
+// ... (rest unchanged until connections map)
+
+
 const Interested = () => {
   const navigate = useNavigate();
   const { user, auth } = useUserInfo();
+
+  const [activeTab, setActiveTab] = useState<"jobs" | "connections">("jobs");
   const [interestedItems, setInterestedItems] = useState<InterestedJobMatch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [networkConnections, setNetworkConnections] = useState<NetworkConnectionItem[]>([]);
+
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+
   const [errorMessage, setErrorMessage] = useState("");
   const [showErrorToast, setShowErrorToast] = useState(false);
-  const [suggestionsMap, setSuggestionsMap] = useState<SuggestionsState>({});
+
+  const [jobSuggestionsMap, setJobSuggestionsMap] = useState<SuggestionsState>({});
+  const [peerSuggestionsMap, setPeerSuggestionsMap] = useState<SuggestionsState>({});
 
   const showInterestedError = (message: string) => {
     setErrorMessage(message);
@@ -59,26 +87,19 @@ const Interested = () => {
   };
 
   useEffect(() => {
-    if (!showErrorToast) {
+    if (!showErrorToast) return;
+    const timeout = window.setTimeout(() => setShowErrorToast(false), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [showErrorToast]);
+
+  useEffect(() => {
+    if (!auth) {
+      setLoadingJobs(false);
       return;
     }
 
-    const timeout = window.setTimeout(() => {
-      setShowErrorToast(false);
-    }, 5000);
-
-    return () => window.clearTimeout(timeout);
-  }, [showErrorToast, errorMessage]);
-
-  useEffect(() => {
     const fetchInterestedJobs = async () => {
-      if (!auth) {
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-
+      setLoadingJobs(true);
       try {
         const response = await fetch("http://localhost:8000/api/matches/applicant/", {
           method: "GET",
@@ -87,20 +108,12 @@ const Interested = () => {
             "Content-Type": "application/json",
           },
         });
-
         const data = await response.json().catch(() => null);
-
         if (!response.ok) {
           setInterestedItems([]);
-          showInterestedError(
-            getInterestedErrorMessage(
-              data,
-              "Unable to load interested jobs right now. Please try again.",
-            ),
-          );
+          showInterestedError(getInterestedErrorMessage(data, "Unable to load interested jobs."));
           return;
         }
-
         const matches = Array.isArray(data) ? data : [];
         setInterestedItems(
           matches
@@ -115,22 +128,42 @@ const Interested = () => {
         );
       } catch {
         setInterestedItems([]);
-        showInterestedError("Unable to load interested jobs right now. Please try again.");
+        showInterestedError("Unable to load interested jobs right now.");
       } finally {
-        setLoading(false);
+        setLoadingJobs(false);
+      }
+    };
+
+    const fetchNetworkConnections = async () => {
+      setLoadingConnections(true);
+      try {
+        const response = await fetch("http://localhost:8000/api/matches/network/", {
+          method: "GET",
+          headers: {
+            Authorization: `Token ${auth}`,
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await response.json().catch(() => []);
+        if (response.ok && Array.isArray(data)) {
+          setNetworkConnections(data);
+        }
+      } catch {
+        setNetworkConnections([]);
+      } finally {
+        setLoadingConnections(false);
       }
     };
 
     fetchInterestedJobs();
+    fetchNetworkConnections();
   }, [auth]);
 
-  const handleToggleDraftEmail = async (job: InterestedJob) => {
+  const handleToggleJobDraft = async (job: InterestedJob) => {
     if (!job.id) return;
-
-    const current = suggestionsMap[job.id];
-
+    const current = jobSuggestionsMap[job.id];
     if (current && current.isOpen) {
-      setSuggestionsMap((prev) => ({
+      setJobSuggestionsMap((prev) => ({
         ...prev,
         [job.id!]: { ...prev[job.id!], isOpen: false },
       }));
@@ -138,8 +171,7 @@ const Interested = () => {
     }
 
     const companyName = formatCompanyName(job.company);
-
-    setSuggestionsMap((prev) => ({
+    setJobSuggestionsMap((prev) => ({
       ...prev,
       [job.id!]: {
         loading: true,
@@ -158,31 +190,20 @@ const Interested = () => {
           "Content-Type": "application/json",
           Authorization: `Token ${auth}`,
         },
-        body: JSON.stringify({
-          job_id: job.id,
-        }),
+        body: JSON.stringify({ job_id: job.id }),
       });
-
       const data = await response.json().catch(() => null);
-
       if (!response.ok) {
         const errDetail = data?.error || data?.detail || "Failed to generate suggestions.";
-        setSuggestionsMap((prev) => ({
+        setJobSuggestionsMap((prev) => ({
           ...prev,
-          [job.id!]: {
-            ...prev[job.id!],
-            loading: false,
-            error: errDetail,
-            isOpen: true,
-          },
+          [job.id!]: { ...prev[job.id!], loading: false, error: errDetail, isOpen: true },
         }));
         showInterestedError(errDetail);
         return;
       }
-
       const defaultDraft = `Hi ${companyName} Team,\n\nI was excited to connect regarding the ${job.title || "open"} role. Based on my background and your team's goals, I would welcome the opportunity to discuss how my skills align with what you're looking for.\n\nBest regards,\n${user?.firstName || "Applicant"}`;
-
-      setSuggestionsMap((prev) => ({
+      setJobSuggestionsMap((prev) => ({
         ...prev,
         [job.id!]: {
           loading: false,
@@ -194,47 +215,98 @@ const Interested = () => {
         },
       }));
     } catch {
-      setSuggestionsMap((prev) => ({
+      setJobSuggestionsMap((prev) => ({
         ...prev,
-        [job.id!]: {
-          ...prev[job.id!],
-          loading: false,
-          error: "Could not generate email suggestions at this time.",
-          isOpen: true,
-        },
+        [job.id!]: { ...prev[job.id!], loading: false, error: "Could not generate email suggestions.", isOpen: true },
       }));
-      showInterestedError("Unable to generate suggestions right now. Please try again.");
+      showInterestedError("Unable to generate suggestions right now.");
     }
   };
 
-  const handleUpdateDraft = (jobId: number, text: string) => {
-    setSuggestionsMap((prev) => ({
+  const handleTogglePeerDraft = async (peerUserId: number) => {
+    const current = peerSuggestionsMap[peerUserId];
+    if (current && current.isOpen) {
+      setPeerSuggestionsMap((prev) => ({
+        ...prev,
+        [peerUserId]: { ...prev[peerUserId], isOpen: false },
+      }));
+      return;
+    }
+
+    setPeerSuggestionsMap((prev) => ({
       ...prev,
-      [jobId]: {
-        ...prev[jobId],
-        draftText: text,
+      [peerUserId]: {
+        loading: true,
+        suggestions: current?.suggestions || [],
+        draftText: current?.draftText || "",
         copied: false,
+        isOpen: true,
       },
     }));
+
+    try {
+      const response = await fetch("http://localhost:8000/api/matches/draft-network-suggestions/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Token ${auth}`,
+        },
+        body: JSON.stringify({ peer_user_id: peerUserId }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errDetail = data?.error || "Failed to generate suggestions.";
+        setPeerSuggestionsMap((prev) => ({
+          ...prev,
+          [peerUserId]: { ...prev[peerUserId], loading: false, error: errDetail, isOpen: true },
+        }));
+        return;
+      }
+
+      setPeerSuggestionsMap((prev) => ({
+        ...prev,
+        [peerUserId]: {
+          loading: false,
+          suggestions: data.suggestions || [],
+          draftText: data.draft_email || "",
+          copied: false,
+          isOpen: true,
+        },
+      }));
+    } catch {
+      setPeerSuggestionsMap((prev) => ({
+        ...prev,
+        [peerUserId]: { ...prev[peerUserId], loading: false, error: "Could not generate draft email.", isOpen: true },
+      }));
+    }
   };
 
-  const handleCopyEmail = (jobId: number) => {
-    const text = suggestionsMap[jobId]?.draftText || "";
+  const handleCopyJobDraft = (jobId: number) => {
+    const text = jobSuggestionsMap[jobId]?.draftText || "";
     navigator.clipboard.writeText(text);
-    setSuggestionsMap((prev) => ({
+    setJobSuggestionsMap((prev) => ({
       ...prev,
-      [jobId]: {
-        ...prev[jobId],
-        copied: true,
-      },
+      [jobId]: { ...prev[jobId], copied: true },
     }));
     setTimeout(() => {
-      setSuggestionsMap((prev) => ({
+      setJobSuggestionsMap((prev) => ({
         ...prev,
-        [jobId]: {
-          ...prev[jobId],
-          copied: false,
-        },
+        [jobId]: { ...prev[jobId], copied: false },
+      }));
+    }, 2500);
+  };
+
+  const handleCopyPeerDraft = (peerUserId: number) => {
+    const text = peerSuggestionsMap[peerUserId]?.draftText || "";
+    navigator.clipboard.writeText(text);
+    setPeerSuggestionsMap((prev) => ({
+      ...prev,
+      [peerUserId]: { ...prev[peerUserId], copied: true },
+    }));
+    setTimeout(() => {
+      setPeerSuggestionsMap((prev) => ({
+        ...prev,
+        [peerUserId]: { ...prev[peerUserId], copied: false },
       }));
     }, 2500);
   };
@@ -245,12 +317,12 @@ const Interested = () => {
       {showErrorToast && (
         <div style={toastStyle} role="alert" aria-live="assertive">
           <div style={toastHeaderStyle}>
-            <strong>Interested jobs error</strong>
+            <strong>Interested error</strong>
             <button
               type="button"
               onClick={() => setShowErrorToast(false)}
               style={toastCloseButtonStyle}
-              aria-label="Dismiss interested jobs error"
+              aria-label="Dismiss error"
             >
               ×
             </button>
@@ -258,12 +330,7 @@ const Interested = () => {
           <p style={toastMessageStyle}>{errorMessage}</p>
         </div>
       )}
-      <div
-        style={{
-          minHeight: "100vh",
-          padding: "24px 16px",
-        }}
-      >
+      <div style={{ minHeight: "100vh", padding: "24px 16px" }}>
         <div
           style={{
             maxWidth: "820px",
@@ -286,71 +353,211 @@ const Interested = () => {
           >
             <div style={{ textAlign: "left" }}>
               <h1 style={{ margin: 0, fontSize: "2rem", color: "#0f172a" }}>
-                Your interested jobs
+                Interested & Connections
               </h1>
               <p style={{ margin: "8px 0 0", color: "#475569" }}>
-                Jobs you have marked as interested.
+                Jobs and networking peers you have connected with.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigate("/applicant/match")}
-              style={{
-                border: "none",
-                borderRadius: "10px",
-                background: "#16a34a",
-                color: "#ffffff",
-                padding: "12px 18px",
-                fontWeight: 600,
-                fontSize: "1rem",
-                cursor: "pointer",
-              }}
-            >
-              Find jobs
-            </button>
+            <div style={{ display: "flex", gap: "8px", background: "#f1f5f9", padding: "4px", borderRadius: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setActiveTab("jobs")}
+                style={{
+                  border: "none",
+                  borderRadius: "8px",
+                  background: activeTab === "jobs" ? "#ffffff" : "transparent",
+                  color: activeTab === "jobs" ? "#16a34a" : "#64748b",
+                  padding: "8px 16px",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  boxShadow: activeTab === "jobs" ? "0 2px 4px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                Jobs ({interestedItems.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("connections")}
+                style={{
+                  border: "none",
+                  borderRadius: "8px",
+                  background: activeTab === "connections" ? "#ffffff" : "transparent",
+                  color: activeTab === "connections" ? "#2563eb" : "#64748b",
+                  padding: "8px 16px",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  boxShadow: activeTab === "connections" ? "0 2px 4px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                Networking Connections ({networkConnections.length})
+              </button>
+            </div>
           </div>
 
-          {loading ? (
-            <div
-              style={{
-                border: "1px dashed #cbd5e1",
-                borderRadius: "14px",
-                padding: "32px 20px",
-                textAlign: "center",
-                background: "#f8fafc",
-              }}
-            >
-              <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>
-                Loading interested jobs...
-              </p>
+          {activeTab === "jobs" ? (
+            loadingJobs ? (
+              <div style={loadingCardStyle}>
+                <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>Loading interested jobs...</p>
+              </div>
+            ) : interestedItems.length === 0 ? (
+              <div style={emptyCardStyle}>
+                <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>You have not saved any jobs yet.</p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/applicant/match")}
+                  style={actionBtnStyle}
+                >
+                  Find jobs
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "12px" }}>
+                {[...interestedItems]
+                  .sort((a, b) => (b.isMutualMatch ? 1 : 0) - (a.isMutualMatch ? 1 : 0))
+                  .map(({ job, isMutualMatch }, index) => {
+                  const suggestion = job.id ? jobSuggestionsMap[job.id] : undefined;
+                  const isSuggestionOpen = !!suggestion?.isOpen;
+
+                  return (
+                    <div
+                      key={`${job.id ?? job.title ?? "job"}-${index}`}
+                      style={{
+                        border: isMutualMatch ? "2px solid #22c55e" : "1px solid #e2e8f0",
+                        borderRadius: "12px",
+                        padding: "16px",
+                        background: isMutualMatch ? "#f0fdf4" : "#f8fafc",
+                        transition: "all 0.2s ease-in-out",
+                        boxShadow: isMutualMatch ? "0 4px 12px rgba(34, 197, 94, 0.12)" : "none",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+                        <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
+                          {job.title || "Untitled job"}
+                        </h2>
+                        {isMutualMatch ? (
+                          <span style={matchedBadgeStyle}>Matched</span>
+                        ) : (
+                          <span style={pendingBadgeStyle}>Pending recruiter</span>
+                        )}
+                      </div>
+                      <p style={{ margin: "0 0 6px", color: "#475569", fontWeight: 600 }}>
+                        {formatCompanyName(job.company)}
+                      </p>
+                      <p style={{ margin: "0 0 6px", color: "#475569" }}>
+                        {job.location} · {formatJobType(job.type)}
+                      </p>
+                      <p style={{ margin: 0, color: "#475569" }}>{formatPay(job.pay)}</p>
+
+                      {job.description && (
+                        <p style={{ margin: "10px 0 0", color: "#475569", lineHeight: 1.5, fontSize: "0.95rem" }}>
+                          {job.description}
+                        </p>
+                      )}
+
+                      {isMutualMatch && (
+                        <div style={{ marginTop: "12px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleJobDraft(job)}
+                            style={linkBtnStyle}
+                          >
+                            {isSuggestionOpen ? "Hide email suggestions" : "Draft email"}
+                          </button>
+                        </div>
+                      )}
+
+                      {isMutualMatch && isSuggestionOpen && (
+                        <div style={draftBoxStyle}>
+                          {suggestion?.loading ? (
+                            <p style={{ margin: 0, color: "#475569", fontSize: "0.95rem" }}>Generating email suggestions...</p>
+                          ) : suggestion?.error ? (
+                            <p style={{ margin: 0, color: "#b91c1c" }}>{suggestion.error}</p>
+                          ) : (
+                            <div>
+                              <h3 style={{ margin: "0 0 6px", fontSize: "1rem", color: "#0f172a", fontWeight: 600 }}>
+                                Suggestions for reaching out to {suggestion?.companyName || "the recruiter"}:
+                              </h3>
+                              <ul style={{ margin: "0 0 14px", paddingLeft: "20px", display: "grid", gap: "6px", color: "#334155" }}>
+                                {suggestion?.suggestions?.map((item, i) => (
+                                  <li key={i}>{item}</li>
+                                ))}
+                              </ul>
+                              <label style={{ display: "block", marginBottom: "6px", fontSize: "0.88rem", fontWeight: 600, color: "#334155" }}>
+                                Email draft
+                              </label>
+                              <textarea
+                                rows={5}
+                                value={suggestion?.draftText || ""}
+                                onChange={(e) =>
+                                  setJobSuggestionsMap((prev) => ({
+                                    ...prev,
+                                    [job.id!]: { ...prev[job.id!], draftText: e.target.value },
+                                  }))
+                                }
+                                style={textareaStyle}
+                              />
+                              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "10px" }}>
+                                {job.company?.email && (
+                                  <a
+                                    href={`mailto:${job.company.email}?subject=${encodeURIComponent(`Application for ${job.title} - ${user?.firstName || "Applicant"}`)}&body=${encodeURIComponent(suggestion?.draftText || "")}`}
+                                    style={secondaryLinkStyle}
+                                  >
+                                    Open mail client
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyJobDraft(job.id!)}
+                                  style={{
+                                    ...primaryBtnStyle,
+                                    background: suggestion?.copied ? "#16a34a" : "#2563eb",
+                                  }}
+                                >
+                                  {suggestion?.copied ? "Copied" : "Copy email text"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : loadingConnections ? (
+            <div style={loadingCardStyle}>
+              <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>Loading networking connections...</p>
             </div>
-          ) : interestedItems.length === 0 ? (
-            <div
-              style={{
-                border: "1px dashed #cbd5e1",
-                borderRadius: "14px",
-                padding: "32px 20px",
-                textAlign: "center",
-                background: "#f8fafc",
-              }}
-            >
-              <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>
-                You have not saved any jobs yet.
-              </p>
-              <p style={{ margin: "8px 0 0", color: "#64748b" }}>
-                Click “Find jobs” to look through matches.
-              </p>
+          ) : networkConnections.length === 0 ? (
+            <div style={emptyCardStyle}>
+              <p style={{ margin: 0, fontSize: "1.1rem", color: "#475569" }}>No networking connections yet.</p>
+              <button
+                type="button"
+                onClick={() => navigate("/applicant/network")}
+                style={{ ...actionBtnStyle, background: "#2563eb" }}
+              >
+                Discover peers
+              </button>
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
-              {interestedItems.map(({ job, isMutualMatch }, index) => {
-                const suggestion = job.id ? suggestionsMap[job.id] : undefined;
-                const isSuggestionOpen = !!suggestion?.isOpen;
+              {[...networkConnections]
+                .sort((a, b) => (b.is_mutual_match ? 1 : 0) - (a.is_mutual_match ? 1 : 0))
+                .map((item) => {
+                const peerUser = item.peer_user;
+                const peerName = [peerUser.first_name, peerUser.last_name].filter(Boolean).join(" ") || peerUser.username;
+                const peerDraft = peerSuggestionsMap[peerUser.id];
+                const isPeerDraftOpen = Boolean(peerDraft?.isOpen);
+                const isMutualMatch = Boolean(item.is_mutual_match);
 
                 return (
                   <div
-                    key={`${job.id ?? job.title ?? "job"}-${index}`}
+                    key={item.id}
                     style={{
                       border: isMutualMatch ? "2px solid #22c55e" : "1px solid #e2e8f0",
                       borderRadius: "12px",
@@ -360,253 +567,85 @@ const Interested = () => {
                       boxShadow: isMutualMatch ? "0 4px 12px rgba(34, 197, 94, 0.12)" : "none",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                      }}
-                    >
-                      <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
-                        {job.title || "Untitled job"}
-                      </h2>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+                      <div>
+                        <h2 style={{ margin: "0 0 4px", fontSize: "1.25rem", color: "#0f172a" }}>{peerName}</h2>
+                        <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>@{peerUser.username}</p>
+                      </div>
                       {isMutualMatch ? (
-                        <span
-                          style={{
-                            borderRadius: "20px",
-                            background: "#16a34a",
-                            color: "#ffffff",
-                            padding: "4px 10px",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            letterSpacing: "0.04em",
-                            textTransform: "uppercase",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Matched
-                        </span>
+                        <span style={matchedBadgeStyle}>Matched Connection</span>
                       ) : (
-                        <span
-                          style={{
-                            borderRadius: "20px",
-                            background: "#e2e8f0",
-                            color: "#475569",
-                            padding: "4px 10px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Pending recruiter
-                        </span>
+                        <span style={pendingBadgeStyle}>Pending peer</span>
                       )}
                     </div>
-                    <p style={{ margin: "0 0 6px", color: "#475569", fontWeight: 600 }}>
-                      {formatCompanyName(job.company)}
-                    </p>
-                    <p style={{ margin: "0 0 6px", color: "#475569" }}>
-                      {job.location} · {formatJobType(job.type)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569" }}>
-                      {formatPay(job.pay)}
-                    </p>
 
-                    {job.description && (
+                    {item.peer_resume?.summary && (
                       <p style={{ margin: "10px 0 0", color: "#475569", lineHeight: 1.5, fontSize: "0.95rem" }}>
-                        {job.description}
+                        {item.peer_resume.summary}
                       </p>
-                    )}
-
-                    {Array.isArray(job.skills) && job.skills.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-                        {job.skills.map((skill) => (
-                          <span
-                            key={skill}
-                            style={{
-                              borderRadius: "6px",
-                              background: "#e2e8f0",
-                              color: "#334155",
-                              padding: "4px 8px",
-                              fontSize: "0.85rem",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
                     )}
 
                     {isMutualMatch && (
                       <div style={{ marginTop: "12px" }}>
                         <button
                           type="button"
-                          onClick={() => handleToggleDraftEmail(job)}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            padding: 0,
-                            color: "#2563eb",
-                            fontWeight: 600,
-                            fontSize: "0.95rem",
-                            cursor: "pointer",
-                            textDecoration: "none",
-                          }}
+                          onClick={() => handleTogglePeerDraft(peerUser.id)}
+                          style={linkBtnStyle}
                         >
-                          {isSuggestionOpen ? "Hide email suggestions" : "Draft email"}
+                          {isPeerDraftOpen ? "Hide email suggestions" : "Draft email"}
                         </button>
                       </div>
                     )}
 
-                    {isMutualMatch && isSuggestionOpen && (
-                      <div
-                        style={{
-                          marginTop: "14px",
-                          padding: "16px",
-                          borderRadius: "10px",
-                          background: "#ffffff",
-                          border: "1px solid #cbd5e1",
-                        }}
-                      >
-                        {suggestion?.loading ? (
-                          <p style={{ margin: 0, color: "#475569", fontSize: "0.95rem" }}>
-                            Generating email suggestions...
-                          </p>
-                        ) : suggestion?.error ? (
-                          <div>
-                            <p style={{ margin: "0 0 8px", color: "#b91c1c", fontSize: "0.95rem" }}>
-                              {suggestion.error}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleDraftEmail(job)}
-                              style={{
-                                border: "none",
-                                borderRadius: "6px",
-                                background: "#2563eb",
-                                color: "#ffffff",
-                                padding: "6px 12px",
-                                fontWeight: 600,
-                                fontSize: "0.85rem",
-                                cursor: "pointer",
-                              }}
-                            >
-                              Try again
-                            </button>
-                          </div>
+                    {isPeerDraftOpen && (
+                      <div style={draftBoxStyle}>
+                        {peerDraft?.loading ? (
+                          <p style={{ margin: 0, color: "#475569", fontSize: "0.95rem" }}>Generating email draft...</p>
+                        ) : peerDraft?.error ? (
+                          <p style={{ margin: 0, color: "#b91c1c" }}>{peerDraft.error}</p>
                         ) : (
                           <div>
-                            <h3
-                              style={{
-                                margin: "0 0 6px",
-                                fontSize: "1rem",
-                                color: "#0f172a",
-                                fontWeight: 600,
-                              }}
-                            >
-                              Suggestions for reaching out to {suggestion?.companyName || "the recruiter"}:
+                            <h3 style={{ margin: "0 0 6px", fontSize: "1rem", color: "#0f172a", fontWeight: 600 }}>
+                              Talking points for connecting with {peerName}:
                             </h3>
-                            <p style={{ margin: "0 0 10px", color: "#64748b", fontSize: "0.88rem" }}>
-                              Use these key talking points to guide your message:
-                            </p>
-
-                            <ul
-                              style={{
-                                margin: "0 0 14px",
-                                paddingLeft: "20px",
-                                display: "grid",
-                                gap: "6px",
-                                color: "#334155",
-                                fontSize: "0.92rem",
-                                lineHeight: 1.45,
-                              }}
-                            >
-                              {suggestion?.suggestions?.map((item, i) => (
-                                <li key={i}>{item}</li>
+                            <ul style={{ margin: "0 0 14px", paddingLeft: "20px", display: "grid", gap: "6px", color: "#334155" }}>
+                              {peerDraft?.suggestions?.map((point, i) => (
+                                <li key={i}>{point}</li>
                               ))}
                             </ul>
-
-                            <div style={{ marginTop: "12px" }}>
-                              <label
-                                htmlFor={`draft-${job.id}`}
-                                style={{
-                                  display: "block",
-                                  marginBottom: "6px",
-                                  fontSize: "0.88rem",
-                                  fontWeight: 600,
-                                  color: "#334155",
-                                }}
-                              >
-                                Email draft
-                              </label>
-                              <textarea
-                                id={`draft-${job.id}`}
-                                rows={5}
-                                value={suggestion?.draftText || ""}
-                                onChange={(e) => handleUpdateDraft(job.id!, e.target.value)}
-                                style={{
-                                  width: "100%",
-                                  boxSizing: "border-box",
-                                  borderRadius: "8px",
-                                  border: "1px solid #cbd5e1",
-                                  padding: "10px",
-                                  fontFamily: "inherit",
-                                  fontSize: "0.92rem",
-                                  lineHeight: 1.45,
-                                  color: "#0f172a",
-                                  resize: "vertical",
-                                }}
-                              />
-
-                              <div
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "flex-end",
-                                  gap: "8px",
-                                  marginTop: "10px",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                {job.company?.email && (
-                                  <a
-                                    href={`mailto:${job.company.email}?subject=${encodeURIComponent(
-                                      `Application for ${job.title} - ${user?.firstName || "Applicant"}`,
-                                    )}&body=${encodeURIComponent(suggestion?.draftText || "")}`}
-                                    style={{
-                                      textDecoration: "none",
-                                      background: "#f1f5f9",
-                                      color: "#334155",
-                                      border: "1px solid #cbd5e1",
-                                      borderRadius: "6px",
-                                      padding: "6px 12px",
-                                      fontWeight: 600,
-                                      fontSize: "0.88rem",
-                                      display: "inline-block",
-                                    }}
-                                  >
-                                    Open mail client
-                                  </a>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyEmail(job.id!)}
-                                  style={{
-                                    border: "none",
-                                    borderRadius: "6px",
-                                    background: suggestion?.copied ? "#16a34a" : "#2563eb",
-                                    color: "#ffffff",
-                                    padding: "6px 14px",
-                                    fontWeight: 600,
-                                    fontSize: "0.88rem",
-                                    cursor: "pointer",
-                                  }}
+                            <label style={{ display: "block", marginBottom: "6px", fontSize: "0.88rem", fontWeight: 600, color: "#334155" }}>
+                              Networking Email Draft
+                            </label>
+                            <textarea
+                              rows={5}
+                              value={peerDraft?.draftText || ""}
+                              onChange={(e) =>
+                                setPeerSuggestionsMap((prev) => ({
+                                  ...prev,
+                                  [peerUser.id]: { ...prev[peerUser.id], draftText: e.target.value },
+                                }))
+                              }
+                              style={textareaStyle}
+                            />
+                            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "10px" }}>
+                              {peerUser.email && (
+                                <a
+                                  href={`mailto:${peerUser.email}?subject=${encodeURIComponent(`Networking Connection - ${user?.firstName || "SeaJobs Applicant"}`)}&body=${encodeURIComponent(peerDraft?.draftText || "")}`}
+                                  style={secondaryLinkStyle}
                                 >
-                                  {suggestion?.copied ? "Copied" : "Copy email text"}
-                                </button>
-                              </div>
+                                  Open mail client
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleCopyPeerDraft(peerUser.id)}
+                                style={{
+                                  ...primaryBtnStyle,
+                                  background: peerDraft?.copied ? "#16a34a" : "#2563eb",
+                                }}
+                              >
+                                {peerDraft?.copied ? "Copied" : "Copy email text"}
+                              </button>
                             </div>
                           </div>
                         )}
@@ -629,24 +668,14 @@ const formatCompanyName = (company?: InterestedJob["company"]) =>
   "Company";
 
 const formatPay = (pay?: string | number) => {
-  if (pay === undefined || pay === null || pay === "") {
-    return "Pay not listed";
-  }
-
+  if (pay === undefined || pay === null || pay === "") return "Pay not listed";
   const numericPay = Number(pay);
-
-  if (Number.isNaN(numericPay)) {
-    return String(pay);
-  }
-
+  if (Number.isNaN(numericPay)) return String(pay);
   return `$${numericPay.toLocaleString()} / year`;
 };
 
 const formatJobType = (type?: string) => {
-  if (!type) {
-    return "Not listed";
-  }
-
+  if (!type) return "Not listed";
   return type
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -654,27 +683,10 @@ const formatJobType = (type?: string) => {
 };
 
 const getInterestedErrorMessage = (data: unknown, fallbackMessage: string) => {
-  if (!data || typeof data !== "object") {
-    return fallbackMessage;
-  }
-
+  if (!data || typeof data !== "object") return fallbackMessage;
   const errorData = data as Record<string, unknown>;
   const directMessage = errorData.detail || errorData.error || errorData.message;
-
-  if (typeof directMessage === "string") {
-    return directMessage;
-  }
-
-  for (const value of Object.values(errorData)) {
-    if (typeof value === "string") {
-      return value;
-    }
-
-    if (Array.isArray(value) && typeof value[0] === "string") {
-      return value[0];
-    }
-  }
-
+  if (typeof directMessage === "string") return directMessage;
   return fallbackMessage;
 };
 
@@ -712,6 +724,110 @@ const toastCloseButtonStyle: React.CSSProperties = {
 const toastMessageStyle: React.CSSProperties = {
   margin: 0,
   fontSize: "0.95rem",
+};
+
+const loadingCardStyle: React.CSSProperties = {
+  border: "1px dashed #cbd5e1",
+  borderRadius: "14px",
+  padding: "32px 20px",
+  textAlign: "center",
+  background: "#f8fafc",
+};
+
+const emptyCardStyle: React.CSSProperties = {
+  border: "1px dashed #cbd5e1",
+  borderRadius: "14px",
+  padding: "32px 20px",
+  textAlign: "center",
+  background: "#f8fafc",
+};
+
+const actionBtnStyle: React.CSSProperties = {
+  border: "none",
+  borderRadius: "10px",
+  background: "#16a34a",
+  color: "#ffffff",
+  padding: "10px 18px",
+  fontWeight: 600,
+  fontSize: "0.95rem",
+  cursor: "pointer",
+  marginTop: "12px",
+};
+
+const matchedBadgeStyle: React.CSSProperties = {
+  borderRadius: "20px",
+  background: "#16a34a",
+  color: "#ffffff",
+  padding: "4px 10px",
+  fontSize: "0.75rem",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  whiteSpace: "nowrap",
+};
+
+const pendingBadgeStyle: React.CSSProperties = {
+  borderRadius: "20px",
+  background: "#e2e8f0",
+  color: "#475569",
+  padding: "4px 10px",
+  fontSize: "0.75rem",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
+const linkBtnStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  color: "#2563eb",
+  fontWeight: 600,
+  fontSize: "0.95rem",
+  cursor: "pointer",
+};
+
+const draftBoxStyle: React.CSSProperties = {
+  marginTop: "14px",
+  padding: "16px",
+  borderRadius: "10px",
+  background: "#ffffff",
+  border: "1px solid #cbd5e1",
+};
+
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  borderRadius: "8px",
+  border: "1px solid #cbd5e1",
+  padding: "10px",
+  fontFamily: "inherit",
+  fontSize: "0.92rem",
+  lineHeight: 1.45,
+  color: "#0f172a",
+  resize: "vertical",
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  border: "none",
+  borderRadius: "6px",
+  background: "#2563eb",
+  color: "#ffffff",
+  padding: "6px 14px",
+  fontWeight: 600,
+  fontSize: "0.88rem",
+  cursor: "pointer",
+};
+
+const secondaryLinkStyle: React.CSSProperties = {
+  textDecoration: "none",
+  background: "#f1f5f9",
+  color: "#334155",
+  border: "1px solid #cbd5e1",
+  borderRadius: "6px",
+  padding: "6px 12px",
+  fontWeight: 600,
+  fontSize: "0.88rem",
+  display: "inline-block",
 };
 
 export default Interested;

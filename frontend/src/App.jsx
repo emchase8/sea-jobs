@@ -11,6 +11,7 @@ import JobPage from "./pages/jobs/Job.tsx";
 import Interested from "./pages/interested/Interested.tsx";
 import CompanyInterested from "./pages/interested/CompanyInterested.tsx";
 import Match from "./pages/match/Match.tsx";
+import Network from "./pages/network/Network.tsx";
 import { useUserInfo } from "./userInfo/userInfoHooks.ts";
 import { ApplicantUser, CompanyUser } from "shared";
 
@@ -45,6 +46,7 @@ function App() {
         />
         <Route path="/applicant/resume" element={<Resume />} />
         <Route path="/applicant/interested" element={<Interested />} />
+        <Route path="/applicant/network" element={<Network />} />
         <Route
           path="/applicant/match"
           element={<Match/>}
