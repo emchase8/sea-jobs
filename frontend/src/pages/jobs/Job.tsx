@@ -189,11 +189,27 @@ const JobPage = () => {
                   id="payPerYear"
                   type="number"
                   value={payPerYear}
-                  onChange={(event) => setPayPerYear(event.target.value)}
+                  onChange={(event) => {
+                    const val = event.target.value;
+                    if (val.replace(/\D/g, "").length > 10) {
+                      setPayError("Pay cannot exceed 10 digits.");
+                      return;
+                    }
+                    setPayError("");
+                    setPayPerYear(val);
+                  }}
                   placeholder="120000"
                   required
-                  style={inputStyle}
+                  style={{
+                    ...inputStyle,
+                    borderColor: payError ? "#dc2626" : "#cbd5e1",
+                  }}
                 />
+                {payError && (
+                  <p style={{ margin: 0, color: "#dc2626", fontSize: "0.875rem" }}>
+                    {payError}
+                  </p>
+                )}
               </div>
             </div>
 
