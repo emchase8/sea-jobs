@@ -159,7 +159,13 @@ const Network = () => {
               textAlign: "left",
             }}
           >
-            <h1 style={{ margin: matchPercentage !== null ? "0 0 6px" : "0 0 25px", textAlign: "center" }}>
+            <h1
+              style={{
+                color: "#111827",
+                margin: matchPercentage !== null ? "0 0 12px" : "0 0 25px",
+                textAlign: "center",
+              }}
+            >
               {formatName(currentPeer.owner)}
             </h1>
 
