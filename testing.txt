@@ -1,0 +1,15 @@
+To test and create messages, run:
+
+python manage.py import_jobs test_jobs.csv
+
+python manage.py import_resumes test_resumes.csv
+
+python manage.py simulate_matches jdoe
+
+login as:
+username: jdoe
+password: password123
+
+companies:
+username: rec_techcorp
+password: password123

@@ -39,10 +39,15 @@ type SuggestionsState = {
   };
 };
 
+type InterestedJobMatch = {
+  job: InterestedJob;
+  isMutualMatch: boolean;
+};
+
 const Interested = () => {
   const navigate = useNavigate();
   const { user, auth } = useUserInfo();
-  const [interestedJobs, setInterestedJobs] = useState<InterestedJob[]>([]);
+  const [interestedItems, setInterestedItems] = useState<InterestedJobMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [showErrorToast, setShowErrorToast] = useState(false);
@@ -86,7 +91,7 @@ const Interested = () => {
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
-          setInterestedJobs([]);
+          setInterestedItems([]);
           showInterestedError(
             getInterestedErrorMessage(
               data,
@@ -97,13 +102,19 @@ const Interested = () => {
         }
 
         const matches = Array.isArray(data) ? data : [];
-        setInterestedJobs(
+        setInterestedItems(
           matches
-            .map((match: ApplicantMatch) => match.job)
-            .filter((job): job is InterestedJob => Boolean(job)),
+            .filter((match: ApplicantMatch) => Boolean(match.job))
+            .map((match: ApplicantMatch) => ({
+              job: match.job!,
+              isMutualMatch: Boolean(
+                match.is_mutual_match ||
+                  (match.applicant_swiped_yes === true && match.employer_swiped_yes === true),
+              ),
+            })),
         );
       } catch {
-        setInterestedJobs([]);
+        setInterestedItems([]);
         showInterestedError("Unable to load interested jobs right now. Please try again.");
       } finally {
         setLoading(false);
@@ -314,7 +325,7 @@ const Interested = () => {
                 Loading interested jobs...
               </p>
             </div>
-          ) : interestedJobs.length === 0 ? (
+          ) : interestedItems.length === 0 ? (
             <div
               style={{
                 border: "1px dashed #cbd5e1",
@@ -333,7 +344,7 @@ const Interested = () => {
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
-              {interestedJobs.map((job, index) => {
+              {interestedItems.map(({ job, isMutualMatch }, index) => {
                 const suggestion = job.id ? suggestionsMap[job.id] : undefined;
                 const isSuggestionOpen = !!suggestion?.isOpen;
 
@@ -341,15 +352,57 @@ const Interested = () => {
                   <div
                     key={`${job.id ?? job.title ?? "job"}-${index}`}
                     style={{
-                      border: "1px solid #e2e8f0",
+                      border: isMutualMatch ? "2px solid #22c55e" : "1px solid #e2e8f0",
                       borderRadius: "12px",
                       padding: "16px",
-                      background: "#f8fafc",
+                      background: isMutualMatch ? "#f0fdf4" : "#f8fafc",
+                      transition: "all 0.2s ease-in-out",
+                      boxShadow: isMutualMatch ? "0 4px 12px rgba(34, 197, 94, 0.12)" : "none",
                     }}
                   >
-                    <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
-                      {job.title || "Untitled job"}
-                    </h2>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                      }}
+                    >
+                      <h2 style={{ margin: "0 0 8px", fontSize: "1.25rem", color: "#0f172a" }}>
+                        {job.title || "Untitled job"}
+                      </h2>
+                      {isMutualMatch ? (
+                        <span
+                          style={{
+                            borderRadius: "20px",
+                            background: "#16a34a",
+                            color: "#ffffff",
+                            padding: "4px 10px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Matched ✨
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            borderRadius: "20px",
+                            background: "#e2e8f0",
+                            color: "#475569",
+                            padding: "4px 10px",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Pending recruiter
+                        </span>
+                      )}
+                    </div>
                     <p style={{ margin: "0 0 6px", color: "#475569", fontWeight: 600 }}>
                       {formatCompanyName(job.company)}
                     </p>
