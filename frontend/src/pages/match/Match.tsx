@@ -22,10 +22,29 @@ const Match = () => {
   const { user, auth } = useUserInfo();
   const [queue, setQueue] = useState<ProposedMatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [showErrorToast, setShowErrorToast] = useState(false);
   
   const [searchParams] = useSearchParams();
   const jobId = searchParams.get("job_id");
   const isCompany = user && 'companyName' in user;
+
+  const showMatchError = (message: string) => {
+    setErrorMessage(message);
+    setShowErrorToast(true);
+  };
+
+  useEffect(() => {
+    if (!showErrorToast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShowErrorToast(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [showErrorToast, errorMessage]);
 
   // Wrap fetch logic in useCallback so it can be called whenever we run out of cards
   const fetchMatches = useCallback(async () => {
@@ -54,7 +73,12 @@ const Match = () => {
         return;
       }
       
-      if (!response.ok) throw new Error("Failed to fetch matches");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        setQueue([]);
+        showMatchError(getMatchErrorMessage(errorData, "Unable to load matches right now. Please try again."));
+        return;
+      }
       
       const data = await response.json();
 
@@ -96,6 +120,7 @@ const Match = () => {
       setQueue(formattedMatches);
     } catch (error) {
       console.error(error);
+      showMatchError("Unable to load matches right now. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -124,6 +149,7 @@ const Match = () => {
 
     if (!targetJobId || (isCompany && !targetResumeId)) {
       console.error("Missing required IDs for swipe request.", { targetJobId, targetResumeId });
+      showMatchError("Unable to save that swipe because the match data is incomplete.");
       return;
     }
 
@@ -159,7 +185,11 @@ const Match = () => {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error("Failed to record swipe");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        showMatchError(getMatchErrorMessage(errorData, "Unable to save that swipe right now. Please try again."));
+        return;
+      }
 
       const data = await response.json();
 
@@ -168,18 +198,51 @@ const Match = () => {
       }
     } catch (error) {
       console.error("Error processing swipe:", error);
+      showMatchError("Unable to save that swipe right now. Please try again.");
     }
   };
 
-  if (loading) return <div>Loading your best matches...</div>;
+  const errorToast = showErrorToast && (
+    <div style={toastStyle} role="alert" aria-live="assertive">
+      <div style={toastHeaderStyle}>
+        <strong>Match error</strong>
+        <button
+          type="button"
+          onClick={() => setShowErrorToast(false)}
+          style={toastCloseButtonStyle}
+          aria-label="Dismiss match error"
+        >
+          ×
+        </button>
+      </div>
+      <p style={toastMessageStyle}>{errorMessage}</p>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <>
+        {errorToast}
+        <div>Loading your best matches...</div>
+      </>
+    );
+  }
 
   const currentMatch = queue[0];
-  if (!currentMatch) return <div>No more matches available right now!</div>;
+  if (!currentMatch) {
+    return (
+      <>
+        {errorToast}
+        <div>No more matches available right now!</div>
+      </>
+    );
+  }
 
   const menuType = isCompany ? "company" : "applicant";
 
   return (
     <>
+      {errorToast}
       <SideMenu userType={menuType} />
       <div className="match-container">
         <div className="match-content">
@@ -208,6 +271,67 @@ const Match = () => {
       </div>
     </>
   );
+};
+
+const getMatchErrorMessage = (data: unknown, fallbackMessage: string) => {
+  if (!data || typeof data !== "object") {
+    return fallbackMessage;
+  }
+
+  const errorData = data as Record<string, unknown>;
+  const directMessage = errorData.detail || errorData.error || errorData.message;
+
+  if (typeof directMessage === "string") {
+    return directMessage;
+  }
+
+  for (const value of Object.values(errorData)) {
+    if (typeof value === "string") {
+      return value;
+    }
+
+    if (Array.isArray(value) && typeof value[0] === "string") {
+      return value[0];
+    }
+  }
+
+  return fallbackMessage;
+};
+
+const toastStyle: React.CSSProperties = {
+  position: "fixed",
+  top: "24px",
+  right: "24px",
+  zIndex: 1000,
+  width: "min(360px, calc(100vw - 32px))",
+  padding: "14px 16px",
+  background: "#b91c1c",
+  color: "#ffffff",
+  borderRadius: "10px",
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.18)",
+};
+
+const toastHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "6px",
+};
+
+const toastCloseButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: "1.25rem",
+  lineHeight: 1,
+  padding: "0 2px",
+};
+
+const toastMessageStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.95rem",
 };
 
 export default Match;

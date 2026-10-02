@@ -10,59 +10,100 @@ const Jobs = () => {
   const navigate = useNavigate();
   const { user, auth } = useUserInfo();
   const [jobListings, setJobListings] = useState<JobListing[]>([]);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [showErrorToast, setShowErrorToast] = useState(false);
+
+  const showJobsError = (message: string) => {
+    setErrorMessage(message);
+    setShowErrorToast(true);
+  };
+
+  useEffect(() => {
+    if (!showErrorToast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShowErrorToast(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [showErrorToast, errorMessage]);
 
   useEffect(() => {
     const fetchJobListings = async () => {
-      const response = await fetch("http://localhost:8000/api/job/", {
-        method: "GET",
-        headers: {
-          Authorization: `Token ${auth}`,
-          "Content-Type": "application/json",
-        },
-      });
-      const data = await response.json()
-      if (response.ok) {
-        const companyUserID =
-          (user as { _userID?: number | null } | null)?._userID ?? null;
-        const jobs: JobListing[] = data.map(
-          (job: {
-            id: number;
-            title: string;
-            jobTitle?: string;
-            location: string;
-            pay: number;
-            payPerYear?: number;
-            type: Job["type"];
-            description: string;
-            skills: string[];
-            skillsNeeded?: string[];
-          }) =>
-            Object.assign(
-              new Job(
-                job.title ?? job.jobTitle,
-                companyUserID,
-                job.location,
-                job.pay ?? job.payPerYear,
-                job.type,
-                job.description,
-                job.skills ?? job.skillsNeeded,
+      try {
+        const response = await fetch("http://localhost:8000/api/job/", {
+          method: "GET",
+          headers: {
+            Authorization: `Token ${auth}`,
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await response.json()
+        if (response.ok) {
+          const companyUserID =
+            (user as { _userID?: number | null } | null)?._userID ?? null;
+          const jobs: JobListing[] = data.map(
+            (job: {
+              id: number;
+              title: string;
+              jobTitle?: string;
+              location: string;
+              pay: number;
+              payPerYear?: number;
+              type: Job["type"];
+              description: string;
+              skills: string[];
+              skillsNeeded?: string[];
+            }) =>
+              Object.assign(
+                new Job(
+                  job.title ?? job.jobTitle,
+                  companyUserID,
+                  job.location,
+                  job.pay ?? job.payPerYear,
+                  job.type,
+                  job.description,
+                  job.skills ?? job.skillsNeeded,
+                ),
+                { id: job.id },
               ),
-              { id: job.id },
-            ),
-        );
-        setJobListings(jobs);
-      } else {
-        console.log(data);
+          );
+          setJobListings(jobs);
+        } else {
+          console.log(data);
+          setJobListings([]);
+          showJobsError(getJobsErrorMessage(data));
+        }
+      } catch {
         setJobListings([]);
+        showJobsError("Unable to load job listings right now. Please try again.");
       }
     }
 
     fetchJobListings();
-  }, [user]);
+  }, [auth, user]);
 
   return (
     <>
       <SideMenu userType="company" />
+      {showErrorToast && (
+        <div style={toastStyle} role="alert" aria-live="assertive">
+          <div style={toastHeaderStyle}>
+            <strong>Jobs error</strong>
+            <button
+              type="button"
+              onClick={() => setShowErrorToast(false)}
+              style={toastCloseButtonStyle}
+              aria-label="Dismiss jobs error"
+            >
+              ×
+            </button>
+          </div>
+          <p style={toastMessageStyle}>{errorMessage}</p>
+        </div>
+      )}
       <div
         style={{
           minHeight: "100vh",
@@ -174,6 +215,67 @@ const Jobs = () => {
     </div>
     </>
   );
+};
+
+const getJobsErrorMessage = (data: unknown) => {
+  if (!data || typeof data !== "object") {
+    return "Unable to load job listings right now. Please try again.";
+  }
+
+  const errorData = data as Record<string, unknown>;
+  const directMessage = errorData.detail || errorData.error || errorData.message;
+
+  if (typeof directMessage === "string") {
+    return directMessage;
+  }
+
+  for (const value of Object.values(errorData)) {
+    if (typeof value === "string") {
+      return value;
+    }
+
+    if (Array.isArray(value) && typeof value[0] === "string") {
+      return value[0];
+    }
+  }
+
+  return "Unable to load job listings right now. Please try again.";
+};
+
+const toastStyle: React.CSSProperties = {
+  position: "fixed",
+  top: "24px",
+  right: "24px",
+  zIndex: 1000,
+  width: "min(360px, calc(100vw - 32px))",
+  padding: "14px 16px",
+  background: "#b91c1c",
+  color: "#ffffff",
+  borderRadius: "10px",
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.18)",
+};
+
+const toastHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "6px",
+};
+
+const toastCloseButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: "1.25rem",
+  lineHeight: 1,
+  padding: "0 2px",
+};
+
+const toastMessageStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.95rem",
 };
 
 export default Jobs;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Job, JobType } from "shared";
 import SideMenu from "../Menu.js";
 import { useUserInfo } from "../../userInfo/userInfoHooks.js";
@@ -11,7 +11,26 @@ const JobPage = () => {
   const [description, setDescription] = useState("");
   const [skillInput, setSkillInput] = useState("");
   const [skills, setSkills] = useState<string[]>([]);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [showErrorToast, setShowErrorToast] = useState(false);
   const { auth } = useUserInfo()
+
+  const showJobError = (message: string) => {
+    setErrorMessage(message);
+    setShowErrorToast(true);
+  };
+
+  useEffect(() => {
+    if (!showErrorToast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShowErrorToast(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [showErrorToast, errorMessage]);
 
   const jobTypeLabels: Record<JobType, string> = {
     [JobType.fullTime]: "Full-time",
@@ -50,35 +69,56 @@ const JobPage = () => {
       skills,
     );
 
-    const response = await fetch("http://localhost:8000/api/job/", {
-      method: "POST",
-      headers: {
-        Authorization: `Token ${auth}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        title: job.jobTitle,
-        location: job.location,
-        pay: job.payPerYear,
-        type: job.type,
-        description: job.description,
-        skills: job.skillsNeeded,
-      }),
-    });
-    const data = await response.json();
+    try {
+      const response = await fetch("http://localhost:8000/api/job/", {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${auth}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: job.jobTitle,
+          location: job.location,
+          pay: job.payPerYear,
+          type: job.type,
+          description: job.description,
+          skills: job.skillsNeeded,
+        }),
+      });
+      const data = await response.json();
 
-    if (response.ok) {
-      console.log("Job data:", job);
-      console.log(data);
-    } else {
-      console.log("error")
-      console.log(data);
+      if (response.ok) {
+        console.log("Job data:", job);
+        console.log(data);
+      } else {
+        console.log("error")
+        console.log(data);
+        showJobError(getJobErrorMessage(data));
+      }
+    } catch {
+      showJobError("Unable to create the job right now. Please try again.");
     }
   };
 
   return (
     <>
       <SideMenu userType="company" />
+      {showErrorToast && (
+        <div style={toastStyle} role="alert" aria-live="assertive">
+          <div style={toastHeaderStyle}>
+            <strong>Job error</strong>
+            <button
+              type="button"
+              onClick={() => setShowErrorToast(false)}
+              style={toastCloseButtonStyle}
+              aria-label="Dismiss job error"
+            >
+              ×
+            </button>
+          </div>
+          <p style={toastMessageStyle}>{errorMessage}</p>
+        </div>
+      )}
       <div
         style={{
           minHeight: "100vh",
@@ -310,6 +350,67 @@ const secondaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   color: "#111827",
   fontWeight: 600,
+};
+
+const getJobErrorMessage = (data: unknown) => {
+  if (!data || typeof data !== "object") {
+    return "Unable to create the job. Please check the details and try again.";
+  }
+
+  const errorData = data as Record<string, unknown>;
+  const directMessage = errorData.detail || errorData.error || errorData.message;
+
+  if (typeof directMessage === "string") {
+    return directMessage;
+  }
+
+  for (const value of Object.values(errorData)) {
+    if (typeof value === "string") {
+      return value;
+    }
+
+    if (Array.isArray(value) && typeof value[0] === "string") {
+      return value[0];
+    }
+  }
+
+  return "Unable to create the job. Please check the details and try again.";
+};
+
+const toastStyle: React.CSSProperties = {
+  position: "fixed",
+  top: "24px",
+  right: "24px",
+  zIndex: 1000,
+  width: "min(360px, calc(100vw - 32px))",
+  padding: "14px 16px",
+  background: "#b91c1c",
+  color: "#ffffff",
+  borderRadius: "10px",
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.18)",
+};
+
+const toastHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "6px",
+};
+
+const toastCloseButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: "1.25rem",
+  lineHeight: 1,
+  padding: "0 2px",
+};
+
+const toastMessageStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.95rem",
 };
 
 export default JobPage;

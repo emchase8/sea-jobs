@@ -96,6 +96,24 @@ const ResumePage = () => {
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [showSubmitErrorToast, setShowSubmitErrorToast] = useState(false);
+
+  const showResumeError = (message: string) => {
+    setSubmitError(message);
+    setShowSubmitErrorToast(true);
+  };
+
+  useEffect(() => {
+    if (!showSubmitErrorToast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShowSubmitErrorToast(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [showSubmitErrorToast, submitError]);
 
   useEffect(() => {
     if (!auth) {
@@ -382,7 +400,7 @@ const ResumePage = () => {
     setSubmitSuccess(null);
 
     if (!auth) {
-      setSubmitError("You must be logged in to save your resume.");
+      showResumeError("You must be logged in to save your resume.");
       return;
     }
 
@@ -420,7 +438,7 @@ const ResumePage = () => {
         error instanceof Error
           ? error.message
           : "The resume could not be saved.";
-      setSubmitError(message);
+      showResumeError(message);
     }
   };
 
@@ -432,6 +450,22 @@ const ResumePage = () => {
   return (
     <>
       <SideMenu userType="applicant" />
+      {showSubmitErrorToast && submitError ? (
+        <div style={toastStyle} role="alert" aria-live="assertive">
+          <div style={toastHeaderStyle}>
+            <strong>Resume error</strong>
+            <button
+              type="button"
+              onClick={() => setShowSubmitErrorToast(false)}
+              style={toastCloseButtonStyle}
+              aria-label="Dismiss resume error"
+            >
+              ×
+            </button>
+          </div>
+          <p style={toastMessageStyle}>{submitError}</p>
+        </div>
+      ) : null}
       <div className="resume-page">
         <div className="resume-shell">
           <h1 className="resume-heading">
@@ -884,6 +918,42 @@ const ResumePage = () => {
       </div>
     </>
   );
+};
+
+const toastStyle: React.CSSProperties = {
+  position: "fixed",
+  top: "24px",
+  right: "24px",
+  zIndex: 1000,
+  width: "min(360px, calc(100vw - 32px))",
+  padding: "14px 16px",
+  background: "#b91c1c",
+  color: "#ffffff",
+  borderRadius: "10px",
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.18)",
+};
+
+const toastHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "6px",
+};
+
+const toastCloseButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: "1.25rem",
+  lineHeight: 1,
+  padding: "0 2px",
+};
+
+const toastMessageStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.95rem",
 };
 
 export default ResumePage;
