@@ -562,7 +562,6 @@ const ResumePage = () => {
 
           <section className="resume-upload-box">
             <div>
-              <h2 className="resume-upload-heading">Upload a PDF resume</h2>
               <p className="resume-upload-copy">
                 Create or update your resume fields from an existing PDF.
               </p>

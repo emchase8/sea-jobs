@@ -345,9 +345,10 @@ def parse_resume_pdf_with_anthropic(uploaded_file):
         )
 
     try:
-        return normalize_parsed_resume(_clean_json_response(response_text))
+        parsed_json = _clean_json_response(response_text)
     except Exception as exc:
         raise serializers.ValidationError({"file": f"The PDF parser returned invalid JSON: {exc}"})
+    return normalize_parsed_resume(parsed_json)
 
 
 class ResumeUploadView(APIView):
