@@ -206,6 +206,18 @@ The authenticated user becomes `company`; clients cannot choose it. Returns `201
 
 Recruiter and owner only. Include any subset of the create fields. When `skills` is supplied, it replaces the complete skill list; when omitted, existing skills remain unchanged. Returns `200 OK` with the updated Job object. Returns `404` both when the job is absent and when it belongs to another user, preventing ownership disclosure.
 
+### Update a job description
+
+`POST /api/job/{job_id}/description/`
+
+Recruiter and owner only. Updates only the job description:
+
+```json
+{"description": "Build and operate Django services for high-volume hiring workflows."}
+```
+
+Returns `200 OK` with the updated Job object, `400` for an invalid or missing description, or `401` for a non-recruiter. Returns `404` both when the job is absent and when it belongs to another user, preventing ownership disclosure.
+
 ### Delete a job
 
 `DELETE /api/job/{job_id}/`

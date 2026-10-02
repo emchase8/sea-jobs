@@ -120,6 +120,19 @@ class JobView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class JobDescriptionView(APIView):
+    def post(self, request, job_id):
+        profile = get_object_or_404(UserProfile, user=request.user)
+        if profile.user_type != UserType.RECRUITER:
+            return unauthorized("Only recruiters can update job descriptions.")
+
+        job = get_object_or_404(Job, pk=job_id, company=request.user)
+        serializer = JobSerializer(job, data={"description": request.data.get("description")}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(company=request.user)
+        return Response(serializer.data)
+
+
 class ResumeView(APIView):
     def get(self, request, resume_id=None):
         if resume_id is None:

@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Job, JobType } from "shared";
 import SideMenu from "../Menu.js";
 import { useUserInfo } from "../../userInfo/userInfoHooks.js";
 
 const JobPage = () => {
+  const navigate = useNavigate();
+  const { jobId } = useParams();
+  const isEditing = Boolean(jobId);
   const [jobTitle, setJobTitle] = useState("");
   const [location, setLocation] = useState("");
   const [payPerYear, setPayPerYear] = useState("");
@@ -14,6 +18,8 @@ const JobPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [showErrorToast, setShowErrorToast] = useState(false);
   const [payError, setPayError] = useState("");
+  const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { auth } = useUserInfo()
 
   const showJobError = (message: string) => {
@@ -32,6 +38,44 @@ const JobPage = () => {
 
     return () => window.clearTimeout(timeout);
   }, [showErrorToast, errorMessage]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    const fetchJob = async () => {
+      setIsLoadingJob(true);
+
+      try {
+        const response = await fetch(`http://localhost:8000/api/job/${jobId}/`, {
+          method: "GET",
+          headers: {
+            Authorization: `Token ${auth}`,
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+          setJobTitle(data.title ?? "");
+          setLocation(data.location ?? "");
+          setPayPerYear(data.pay ? String(Number(data.pay)) : "");
+          setType((data.type as JobType) ?? JobType.fullTime);
+          setDescription(data.description ?? "");
+          setSkills(Array.isArray(data.skills) ? data.skills : []);
+        } else {
+          showJobError(getJobErrorMessage(data, "Unable to load the job. Please try again."));
+        }
+      } catch {
+        showJobError("Unable to load the job right now. Please try again.");
+      } finally {
+        setIsLoadingJob(false);
+      }
+    };
+
+    fetchJob();
+  }, [auth, isEditing, jobId]);
 
   const jobTypeLabels: Record<JobType, string> = {
     [JobType.fullTime]: "Full-time",
@@ -59,6 +103,32 @@ const JobPage = () => {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setIsSaving(true);
+
+    if (isEditing) {
+      try {
+        const response = await fetch(`http://localhost:8000/api/job/${jobId}/description/`, {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${auth}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ description }),
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+          navigate("/company/jobs");
+        } else {
+          showJobError(getJobErrorMessage(data, "Unable to update the job description. Please try again."));
+        }
+      } catch {
+        showJobError("Unable to update the job description right now. Please try again.");
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
 
     const job = new Job(
       jobTitle,
@@ -91,13 +161,16 @@ const JobPage = () => {
       if (response.ok) {
         console.log("Job data:", job);
         console.log(data);
+        navigate("/company/jobs");
       } else {
         console.log("error")
         console.log(data);
-        showJobError(getJobErrorMessage(data));
+        showJobError(getJobErrorMessage(data, "Unable to create the job. Please check the details and try again."));
       }
     } catch {
       showJobError("Unable to create the job right now. Please try again.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -137,10 +210,12 @@ const JobPage = () => {
           }}
         >
           <h1 style={{ margin: "0 0 8px", fontSize: "2rem" }}>
-            Create a job listing
+            {isEditing ? "Edit job description" : "Create a job listing"}
           </h1>
           <p style={{ margin: "0 0 24px", color: "#475569" }}>
-            Add the job details and required skills.
+            {isEditing
+              ? "Update the description applicants see for this job."
+              : "Add the job details and required skills."}
           </p>
 
           <form
@@ -157,7 +232,8 @@ const JobPage = () => {
                 onChange={(event) => setJobTitle(event.target.value)}
                 placeholder="Senior Frontend Engineer"
                 required
-                style={inputStyle}
+                disabled={isEditing || isLoadingJob}
+                style={isEditing ? disabledInputStyle : inputStyle}
               />
             </div>
 
@@ -178,7 +254,8 @@ const JobPage = () => {
                   onChange={(event) => setLocation(event.target.value)}
                   placeholder="Austin, TX"
                   required
-                  style={inputStyle}
+                  disabled={isEditing || isLoadingJob}
+                  style={isEditing ? disabledInputStyle : inputStyle}
                 />
               </div>
 
@@ -201,8 +278,9 @@ const JobPage = () => {
                   }}
                   placeholder="120000"
                   required
+                  disabled={isEditing || isLoadingJob}
                   style={{
-                    ...inputStyle,
+                    ...(isEditing ? disabledInputStyle : inputStyle),
                     borderColor: payError ? "#dc2626" : "#cbd5e1",
                   }}
                 />
@@ -222,7 +300,8 @@ const JobPage = () => {
                 id="type"
                 value={type}
                 onChange={(event) => setType(event.target.value as JobType)}
-                style={inputStyle}
+                disabled={isEditing || isLoadingJob}
+                style={isEditing ? disabledInputStyle : inputStyle}
               >
                 {Object.values(JobType).map((jobType) => (
                   <option key={jobType} value={jobType}>
@@ -243,6 +322,7 @@ const JobPage = () => {
                 placeholder="Describe the role and responsibilities"
                 rows={5}
                 required
+                disabled={isLoadingJob || isSaving}
                 style={{ ...inputStyle, resize: "vertical" }}
               />
             </div>
@@ -267,22 +347,24 @@ const JobPage = () => {
                         }}
                       >
                         {skill}
-                        <button
-                          type="button"
-                          onClick={() => removeSkill(skill)}
-                          aria-label={`Remove ${skill}`}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "#374151",
-                            cursor: "pointer",
-                            fontSize: "14px",
-                            lineHeight: 1,
-                            padding: 0,
-                          }}
-                        >
-                          ×
-                        </button>
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => removeSkill(skill)}
+                            aria-label={`Remove ${skill}`}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "#374151",
+                              cursor: "pointer",
+                              fontSize: "14px",
+                              lineHeight: 1,
+                              padding: 0,
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
                       </span>
                     ))
                   ) : (
@@ -292,34 +374,60 @@ const JobPage = () => {
                   )}
                 </div>
 
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <input
-                    type="text"
-                    value={skillInput}
-                    onChange={(event) => setSkillInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        addSkill();
-                      }
-                    }}
-                    placeholder="Add skill and press Enter"
-                    style={{ ...inputStyle, flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    onClick={addSkill}
-                    style={secondaryButtonStyle}
-                  >
-                    Add skill
-                  </button>
-                </div>
+                {!isEditing && (
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <input
+                      type="text"
+                      value={skillInput}
+                      onChange={(event) => setSkillInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addSkill();
+                        }
+                      }}
+                      placeholder="Add skill and press Enter"
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={addSkill}
+                      style={secondaryButtonStyle}
+                    >
+                      Add skill
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
-            <button type="submit" style={primaryButtonStyle}>
-              Post job
-            </button>
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="submit"
+                disabled={isLoadingJob || isSaving}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: isLoadingJob || isSaving ? 0.65 : 1,
+                  cursor: isLoadingJob || isSaving ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSaving
+                  ? "Saving..."
+                  : isEditing
+                    ? "Save description"
+                    : "Post job"}
+              </button>
+              <Link
+                to="/company/jobs"
+                style={{
+                  color: "#2563eb",
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                Back to jobs
+              </Link>
+            </div>
           </form>
         </div>
       </div>
@@ -348,6 +456,12 @@ const inputStyle: React.CSSProperties = {
   color: "#111827",
 };
 
+const disabledInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  background: "#f8fafc",
+  color: "#475569",
+};
+
 const primaryButtonStyle: React.CSSProperties = {
   padding: "12px 20px",
   border: "none",
@@ -369,9 +483,12 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-const getJobErrorMessage = (data: unknown) => {
+const getJobErrorMessage = (
+  data: unknown,
+  fallback = "Unable to create the job. Please check the details and try again.",
+) => {
   if (!data || typeof data !== "object") {
-    return "Unable to create the job. Please check the details and try again.";
+    return fallback;
   }
 
   const errorData = data as Record<string, unknown>;
@@ -391,7 +508,7 @@ const getJobErrorMessage = (data: unknown) => {
     }
   }
 
-  return "Unable to create the job. Please check the details and try again.";
+  return fallback;
 };
 
 const toastStyle: React.CSSProperties = {

@@ -13,7 +13,7 @@ import CompanyInterested from "./pages/interested/CompanyInterested.tsx";
 import Match from "./pages/match/Match.tsx";
 import Network from "./pages/network/Network.tsx";
 import { useUserInfo } from "./userInfo/userInfoHooks.ts";
-import { ApplicantUser, CompanyUser } from "shared";
+import { CompanyUser } from "shared";
 
 function App() {
   const { user, auth } = useUserInfo();
@@ -32,6 +32,7 @@ function App() {
           />
           <Route path="/company/jobs" element={<Jobs />} />
           <Route path="/company/job" element={<JobPage />} />
+          <Route path="/company/job/:jobId/edit" element={<JobPage />} />
           <Route path="/company/match" element={<Match />} />
           <Route path="/company/interested" element={<CompanyInterested />} />
         </Routes>

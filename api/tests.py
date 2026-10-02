@@ -96,6 +96,43 @@ class JobEndpointTests(APITestBase):
         self.assertEqual(self.client.post(f"/api/job/{job.id}/", {"title": "Stolen"}, format="json").status_code, 404)
         self.assertEqual(self.client.delete(f"/api/job/{job.id}/").status_code, 404)
 
+    def test_recruiter_can_update_owned_job_description(self):
+        job = self.create_job()
+        self.authenticate(self.recruiter)
+        response = self.client.post(
+            f"/api/job/{job.id}/description/",
+            {"description": "Build reliable API platforms"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["description"], "Build reliable API platforms")
+        self.assertEqual(response.data["title"], "Backend Engineer")
+        job.refresh_from_db()
+        self.assertEqual(job.description, "Build reliable API platforms")
+
+    def test_job_description_update_is_recruiter_owner_only(self):
+        job = self.create_job()
+        self.authenticate(self.other_recruiter)
+        self.assertEqual(
+            self.client.post(
+                f"/api/job/{job.id}/description/",
+                {"description": "Stolen"},
+                format="json",
+            ).status_code,
+            404,
+        )
+
+        self.authenticate(self.applicant)
+        self.assertEqual(
+            self.client.post(
+                f"/api/job/{job.id}/description/",
+                {"description": "Applicant update"},
+                format="json",
+            ).status_code,
+            401,
+        )
+
     def test_applicant_job_list_is_unauthorized(self):
         self.authenticate(self.applicant)
         self.assertEqual(self.client.get("/api/job/").status_code, 401)
@@ -264,4 +301,3 @@ class NetworkEndpointTests(APITestBase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("suggestions", res.data)
         self.assertIn("draft_email", res.data)
-

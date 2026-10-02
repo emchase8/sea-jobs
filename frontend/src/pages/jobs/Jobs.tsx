@@ -195,26 +195,47 @@ const Jobs = () => {
                 <p style={{ margin: 0, color: "#475569" }}>
                   ${job.payPerYear.toLocaleString()} / year
                 </p>
-                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginTop: "12px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                    flexWrap: "wrap",
+                    marginTop: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                    <Link
+                      to={`/company/match?job_id=${job.id}`}
+                      style={{
+                        color: "#2563eb",
+                        fontWeight: 600,
+                        textDecoration: "none",
+                      }}
+                    >
+                      View matches
+                    </Link>
+                    <Link
+                      to={`/company/interested?job_id=${job.id}`}
+                      style={{
+                        color: "#2563eb",
+                        fontWeight: 600,
+                        textDecoration: "none",
+                      }}
+                    >
+                      Interested applicants
+                    </Link>
+                  </div>
                   <Link
-                    to={`/company/match?job_id=${job.id}`}
+                    to={`/company/job/${job.id}/edit`}
                     style={{
                       color: "#2563eb",
                       fontWeight: 600,
                       textDecoration: "none",
+                      marginLeft: "auto",
                     }}
                   >
-                    View matches
-                  </Link>
-                  <Link
-                    to={`/company/interested?job_id=${job.id}`}
-                    style={{
-                      color: "#2563eb",
-                      fontWeight: 600,
-                      textDecoration: "none",
-                    }}
-                  >
-                    Interested applicants
+                    Edit description
                   </Link>
                 </div>
               </div>

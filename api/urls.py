@@ -2,6 +2,7 @@
 from django.urls import path
 
 from .views import (
+    JobDescriptionView,
     JobView,
     LoginView,
     MatchingJobs,
@@ -29,6 +30,7 @@ urlpatterns = [
     path("user/<int:user_id>/resume/", UserResumeView.as_view(), name="user-resume"),
     path("job/", JobView.as_view(), name="jobs"),
     path("job/<int:job_id>/", JobView.as_view(), name="job-detail"),
+    path("job/<int:job_id>/description/", JobDescriptionView.as_view(), name="job-description"),
     path("resume/", ResumeView.as_view(), name="resumes"),
     path("resume/upload/", ResumeUploadView.as_view(), name="resume-upload"),
     path("resume/<int:resume_id>/", ResumeView.as_view(), name="resume-detail"),
@@ -43,4 +45,3 @@ urlpatterns = [
     path("swipe/", SwipeView.as_view(), name="swipe"),
     path("swipe/peer/", PeerSwipeView.as_view(), name="peer-swipe"),
 ]
-
