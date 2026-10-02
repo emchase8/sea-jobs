@@ -385,7 +385,7 @@ const Interested = () => {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          Matched ✨
+                          Matched
                         </span>
                       ) : (
                         <span
