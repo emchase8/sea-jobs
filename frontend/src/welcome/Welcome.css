@@ -95,6 +95,13 @@
   text-align: center;
 }
 
+@media (prefers-color-scheme: dark) {
+  .welcome-card {
+    background: #484b58;
+    border-color: #393b46;
+  }
+}
+
 .welcome-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.13);
