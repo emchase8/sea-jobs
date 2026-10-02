@@ -195,18 +195,28 @@ const Jobs = () => {
                 <p style={{ margin: 0, color: "#475569" }}>
                   ${job.payPerYear.toLocaleString()} / year
                 </p>
-                <Link
-                  to={`/company/match?job_id=${job.id}`}
-                  style={{
-                    display: "inline-block",
-                    marginTop: "12px",
-                    color: "#2563eb",
-                    fontWeight: 600,
-                    textDecoration: "none",
-                  }}
-                >
-                  View matches
-                </Link>
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginTop: "12px" }}>
+                  <Link
+                    to={`/company/match?job_id=${job.id}`}
+                    style={{
+                      color: "#2563eb",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    View matches
+                  </Link>
+                  <Link
+                    to={`/company/interested?job_id=${job.id}`}
+                    style={{
+                      color: "#2563eb",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    Interested applicants
+                  </Link>
+                </div>
               </div>
             ))}
           </div>
