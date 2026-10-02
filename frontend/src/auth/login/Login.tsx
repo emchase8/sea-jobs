@@ -1,10 +1,30 @@
 import { ApplicantUser, CompanyUser } from "shared";
 import { useUserInfoActions } from "../../userInfo/userInfoHooks.js";
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 
 const Login = () => {
   const { updateUserInfo } = useUserInfoActions();
   const nav = useNavigate();
+  const [errorMessage, setErrorMessage] = useState("");
+  const [showErrorToast, setShowErrorToast] = useState(false);
+
+  const showLoginError = (message: string) => {
+    setErrorMessage(message);
+    setShowErrorToast(true);
+  };
+
+  useEffect(() => {
+    if (!showErrorToast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShowErrorToast(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [showErrorToast, errorMessage]);
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -13,48 +33,70 @@ const Login = () => {
     const username = String(formData.get("username") || "");
     const password = String(formData.get("password") || "");
 
-    const response = await fetch("http://localhost:8000/api/auth/login/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username,
-        password,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      const profile = data["profile"];
-
-      if (profile["user_type"] === "applicant") {
-        const currUser = new ApplicantUser(
-          profile["user"]["first_name"],
-          profile["user"]["last_name"],
+    try {
+      const response = await fetch("http://localhost:8000/api/auth/login/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           username,
           password,
-          profile["user"]["email"],
-        );
-        updateUserInfo(currUser, data["token"]);
-        nav("/applicant/resume");
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const profile = data["profile"];
+
+        if (profile["user_type"] === "applicant") {
+          const currUser = new ApplicantUser(
+            profile["user"]["first_name"],
+            profile["user"]["last_name"],
+            username,
+            password,
+            profile["user"]["email"],
+          );
+          updateUserInfo(currUser, data["token"]);
+          nav("/applicant/resume");
+        } else {
+          const currUser = new CompanyUser(
+            username,
+            password,
+            profile["user"]["email"],
+            profile["description"],
+          );
+          updateUserInfo(currUser, data["token"]);
+          nav("/company/jobs");
+        }
       } else {
-        const currUser = new CompanyUser(
-          username,
-          password,
-          profile["user"]["email"],
-          profile["description"],
-        );
-        updateUserInfo(currUser, data["token"]);
-        nav("/company/jobs");
+        console.log("error");
+        console.log(data);
+        showLoginError(getAuthErrorMessage(data, "Login failed. Please check your credentials and try again."));
       }
-    } else {
-      console.log("error");
-      console.log(data);
+    } catch {
+      showLoginError("Unable to login right now. Please try again.");
     }
   };
 
   return (
     <div style={pageShellStyle}>
+      {showErrorToast && (
+        <div style={toastStyle} role="alert" aria-live="assertive">
+          <div style={toastHeaderStyle}>
+            <strong>Login failed</strong>
+            <button
+              type="button"
+              onClick={() => setShowErrorToast(false)}
+              style={toastCloseButtonStyle}
+              aria-label="Dismiss login error"
+            >
+              ×
+            </button>
+          </div>
+          <p style={toastMessageStyle}>{errorMessage}</p>
+        </div>
+      )}
+
       <div style={cardStyle}>
         <h1 style={headingStyle}>Login</h1>
         <p style={subtitleStyle}>Welcome back. Sign in to continue.</p>
@@ -158,6 +200,67 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: "1rem",
   fontWeight: 600,
+};
+
+const getAuthErrorMessage = (data: unknown, fallbackMessage: string) => {
+  if (!data || typeof data !== "object") {
+    return fallbackMessage;
+  }
+
+  const errorData = data as Record<string, unknown>;
+  const directMessage = errorData.detail || errorData.error || errorData.message;
+
+  if (typeof directMessage === "string") {
+    return directMessage;
+  }
+
+  for (const value of Object.values(errorData)) {
+    if (typeof value === "string") {
+      return value;
+    }
+
+    if (Array.isArray(value) && typeof value[0] === "string") {
+      return value[0];
+    }
+  }
+
+  return fallbackMessage;
+};
+
+const toastStyle: React.CSSProperties = {
+  position: "fixed",
+  top: "24px",
+  right: "24px",
+  zIndex: 1000,
+  width: "min(360px, calc(100vw - 32px))",
+  padding: "14px 16px",
+  background: "#b91c1c",
+  color: "#ffffff",
+  borderRadius: "10px",
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.18)",
+};
+
+const toastHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "6px",
+};
+
+const toastCloseButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: "1.25rem",
+  lineHeight: 1,
+  padding: "0 2px",
+};
+
+const toastMessageStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.95rem",
 };
 
 export default Login;
