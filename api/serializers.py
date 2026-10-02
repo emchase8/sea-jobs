@@ -9,9 +9,14 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    company_name = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name"]
+        fields = ["id", "username", "email", "first_name", "last_name", "company_name"]
+
+    def get_company_name(self, obj):
+        return obj.first_name if obj.first_name else obj.username
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -150,8 +155,20 @@ class JobSerializer(serializers.ModelSerializer):
 class MatchSerializer(serializers.ModelSerializer):
     job = JobSerializer(read_only=True)
     resume = ResumeSerializer(read_only=True)
+    is_mutual_match = serializers.SerializerMethodField()
 
     class Meta:
         model = Match
-        fields = ["id", "job", "resume", "created_at"]
+        fields = [
+            "id",
+            "job",
+            "resume",
+            "applicant_swiped_yes",
+            "employer_swiped_yes",
+            "is_mutual_match",
+            "created_at",
+        ]
         read_only_fields = ["id"]
+
+    def get_is_mutual_match(self, obj):
+        return bool(obj.applicant_swiped_yes is True and obj.employer_swiped_yes is True)
