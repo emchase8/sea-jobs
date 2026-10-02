@@ -130,12 +130,12 @@ const Jobs = () => {
             flexWrap: "wrap",
           }}
         >
-          <div>
+          <div style={{ textAlign: "left" }}>
             <h1 style={{ margin: 0, fontSize: "2rem", color: "#0f172a" }}>
               Your job listings
             </h1>
             <p style={{ margin: "8px 0 0", color: "#475569" }}>
-              Manage the jobs you have posted.
+              Manage the jobs you have posted and find applicant matches!
             </p>
           </div>
 
