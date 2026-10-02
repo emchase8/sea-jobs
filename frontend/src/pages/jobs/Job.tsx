@@ -13,6 +13,7 @@ const JobPage = () => {
   const [skills, setSkills] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [showErrorToast, setShowErrorToast] = useState(false);
+  const [payError, setPayError] = useState("");
   const { auth } = useUserInfo()
 
   const showJobError = (message: string) => {
