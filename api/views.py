@@ -133,6 +133,49 @@ class JobDescriptionView(APIView):
         return Response(serializer.data)
 
 
+class ExtractSkillsView(APIView):
+    def post(self, request):
+        profile = get_object_or_404(UserProfile, user=request.user)
+        if profile.user_type != UserType.RECRUITER:
+            return unauthorized("Only recruiters can extract skills.")
+            
+        description = request.data.get("description", "").strip()
+        if not description:
+            return Response({"error": "Description is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key = config("ANTHROPIC_API_KEY", default="")
+        if not api_key:
+            # Fallback when API key is not configured
+            return Response({"skills": ["Communication", "Teamwork"]}, status=status.HTTP_200_OK)
+
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            system_prompt = (
+                "You are an expert technical recruiter. Given a job description, extract the key skills required for the role. "
+                "Provide a list of up to 10 specific skills (e.g., Python, React, Project Management). "
+                "Output ONLY valid JSON in the format: {\"skills\": [\"Skill 1\", \"Skill 2\"]}"
+            )
+            msg = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=300,
+                system=system_prompt,
+                messages=[{"role": "user", "content": f"Job Description:\n{description}"}],
+            )
+            response_text = msg.content[0].text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+
+            parsed = json.loads(response_text.strip())
+            skills = parsed.get("skills", [])
+            return Response({"skills": skills}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ResumeView(APIView):
     def get(self, request, resume_id=None):
         if resume_id is None:

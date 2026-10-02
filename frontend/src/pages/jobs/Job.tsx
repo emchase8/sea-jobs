@@ -20,6 +20,7 @@ const JobPage = () => {
   const [payError, setPayError] = useState("");
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const { auth } = useUserInfo()
 
   const showJobError = (message: string) => {
@@ -99,6 +100,31 @@ const JobPage = () => {
     setSkills((previous) =>
       previous.filter((skill) => skill !== skillToRemove),
     );
+  };
+
+  const extractSkills = async () => {
+    if (!description) return;
+    setIsExtracting(true);
+    try {
+      const response = await fetch("http://localhost:8000/api/job/extract-skills/", {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${auth}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ description }),
+      });
+      const data = await response.json();
+      if (response.ok && data.skills) {
+        setSkills((prev) => Array.from(new Set([...prev, ...data.skills])));
+      } else {
+        showJobError(data.error || "Failed to extract skills. Please try again.");
+      }
+    } catch {
+      showJobError("Unable to extract skills right now. Please try again.");
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -328,7 +354,17 @@ const JobPage = () => {
             </div>
 
             <div style={fieldStyle}>
-              <label style={labelStyle}>Skills needed</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label style={labelStyle}>Skills needed</label>
+                <button 
+                  type="button" 
+                  onClick={extractSkills} 
+                  style={{...secondaryButtonStyle, padding: "6px 12px", fontSize: "0.875rem"}}
+                  disabled={isExtracting || !description.trim()}
+                >
+                  {isExtracting ? "Extracting..." : "Auto-extract from description"}
+                </button>
+              </div>
               <div style={{ display: "grid", gap: "12px" }}>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                   {skills.length > 0 ? (

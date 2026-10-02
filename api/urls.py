@@ -4,6 +4,7 @@ from django.urls import path
 from .views import (
     JobDescriptionView,
     JobView,
+    ExtractSkillsView,
     LoginView,
     MatchingJobs,
     MatchingResumes,
@@ -29,6 +30,7 @@ urlpatterns = [
     path("user/<int:user_id>/", UserView.as_view(), name="user-detail"),
     path("user/<int:user_id>/resume/", UserResumeView.as_view(), name="user-resume"),
     path("job/", JobView.as_view(), name="jobs"),
+    path("job/extract-skills/", ExtractSkillsView.as_view(), name="job-extract-skills"),
     path("job/<int:job_id>/", JobView.as_view(), name="job-detail"),
     path("job/<int:job_id>/description/", JobDescriptionView.as_view(), name="job-description"),
     path("resume/", ResumeView.as_view(), name="resumes"),
