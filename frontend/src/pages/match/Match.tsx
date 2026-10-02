@@ -28,6 +28,7 @@ const Match = () => {
   const [searchParams] = useSearchParams();
   const jobId = searchParams.get("job_id");
   const isCompany = user && 'companyName' in user;
+  const menuType = isCompany ? "company" : "applicant";
 
   const showMatchError = (message: string) => {
     setErrorMessage(message);
@@ -222,6 +223,7 @@ const Match = () => {
   if (loading) {
     return (
       <>
+        <SideMenu userType={menuType} />
         {errorToast}
         <div>Loading your best matches...</div>
       </>
@@ -232,13 +234,12 @@ const Match = () => {
   if (!currentMatch) {
     return (
       <>
+        <SideMenu userType={menuType} />
         {errorToast}
         <div>No more matches available right now!</div>
       </>
     );
   }
-
-  const menuType = isCompany ? "company" : "applicant";
 
   return (
     <>
