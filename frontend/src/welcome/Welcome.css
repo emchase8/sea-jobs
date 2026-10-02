@@ -1,0 +1,150 @@
+/* Welcome Page */
+.welcome-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+}
+
+/* ── Header ── */
+.welcome-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 32px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.welcome-logo {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.5px;
+}
+
+.welcome-header-login-btn {
+  padding: 9px 20px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #2563eb;
+  background: transparent;
+  border: 2px solid #2563eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+
+.welcome-header-login-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+/* ── Hero / Main ── */
+.welcome-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  text-align: center;
+  gap: 16px;
+}
+
+.welcome-headline {
+  margin: 0 0 8px;
+  font-size: 2.8rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -1px;
+  line-height: 1.15;
+}
+
+.welcome-subheadline {
+  margin: 0 0 36px;
+  font-size: 1.1rem;
+  color: #475569;
+  max-width: 480px;
+  line-height: 1.6;
+}
+
+/* ── Card row ── */
+.welcome-cards {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.welcome-card {
+  width: 240px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  padding: 36px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: transform 0.18s, box-shadow 0.18s;
+  text-align: center;
+}
+
+.welcome-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.13);
+}
+
+.welcome-card-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.welcome-card-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.welcome-card-desc {
+  font-size: 0.88rem;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.welcome-card-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 11px 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: #2563eb;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+
+.welcome-card-btn:hover {
+  background: #1d4ed8;
+}
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .welcome-headline {
+    font-size: 2rem;
+  }
+
+  .welcome-card {
+    width: 100%;
+    max-width: 320px;
+  }
+}
