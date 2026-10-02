@@ -65,6 +65,23 @@ Note: Beware of modifying this element as it can break the animations - you shou
   text-align: left;
 }
 
+.menu-item,
+.menu-item:visited {
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.menu-item:hover,
+.menu-item:focus {
+  color: #bfdbfe;
+}
+
+.menu-item:focus-visible {
+  outline: 2px solid #bfdbfe;
+  outline-offset: 4px;
+}
+
 /* Styling of overlay */
 .bm-overlay {
   background: rgba(0, 0, 0, 0.3);
